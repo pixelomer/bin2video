@@ -1,0 +1,7 @@
+*
+!src/
+!src/*.c
+!src/*.h
+!.gitignore
+!.gitattributes
+!README.md

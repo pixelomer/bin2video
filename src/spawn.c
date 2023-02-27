@@ -39,9 +39,11 @@ int spawn_process(char **argv, pid_t *new_pid, int *stdin_fd, int *stdout_fd) {
 	
 	*new_pid = ret;
 	if (stdin_fd != NULL) {
+		close(stdin_pipe[0]);
 		*stdin_fd = stdin_pipe[1];
 	}
 	if (stdout_fd != NULL) {
+		close(stdout_pipe[1]);
 		*stdout_fd = stdout_pipe[0];
 	}
 	return 0;

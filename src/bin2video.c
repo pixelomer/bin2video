@@ -9,6 +9,12 @@
 #include "bin2video.h"
 #include "spawn.h"
 
+#define INTERNAL_WIDTH 320
+#define INTERNAL_HEIGHT 180
+#define VIDEO_SCALE 4
+#define VIDEO_WIDTH (VIDEO_SCALE * INTERNAL_WIDTH)
+#define VIDEO_HEIGHT (VIDEO_SCALE * INTERNAL_HEIGHT)
+
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #define STBI_WRITE_NO_STDIO
 #include "stb_image_write.h"
@@ -101,16 +107,15 @@ int b2v_decode(const char *input, const char *output,
 		perror("couldn't spawn ffmpeg");
 	}
 
-	const size_t png_buffer_size = 1280 * 720 * 4 * 3; // ¯\_(ツ)_/¯
-	const size_t png_buffer_chunk = 1024;
+	const size_t png_buffer_size = VIDEO_WIDTH * VIDEO_HEIGHT * 4 * 3; // ¯\_(ツ)_/¯
 	size_t png_buffer_pos = 0;
 	uint8_t *png_buffer = malloc(png_buffer_size);
 
 	int bit=0, byte=0;
 
-	const int scale = 4;
-	const int width = 320;
-	const int height = 180;
+	const int scale = VIDEO_SCALE;
+	const int width = INTERNAL_WIDTH;
+	const int height = INTERNAL_HEIGHT;
 	const int pixels = width * height;
 	
 	uint8_t *image_data = malloc(pixels * 3);
@@ -118,8 +123,8 @@ int b2v_decode(const char *input, const char *output,
 	int result = -1;
 	while (result == -1) {
 		while (png_buffer_pos < png_buffer_size) {
-			size_t chunk = png_buffer_chunk;
-			if ((png_buffer_size - png_buffer_pos) < png_buffer_chunk) {
+			size_t chunk = 0x8000;
+			if ((png_buffer_size - png_buffer_pos) < chunk) {
 				chunk = png_buffer_size - png_buffer_pos;
 			}
 			ssize_t ret = read(ffmpeg_stdout, png_buffer + png_buffer_pos, chunk);
@@ -222,9 +227,9 @@ int b2v_encode(const char *input, const char *output, int block_size,
 		return EXIT_FAILURE;
 	}
 
-	const int scale = 4;
-	const int width = 320;
-	const int height = 180;
+	const int scale = VIDEO_SCALE;
+	const int width = INTERNAL_WIDTH;
+	const int height = INTERNAL_HEIGHT;
 	const int pixels = width * height;
 	
 	uint8_t *image_data = malloc(pixels * 3);

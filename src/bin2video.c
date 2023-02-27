@@ -105,6 +105,8 @@ int b2v_decode(const char *input, const char *output,
 		"image2pipe", "-", "-v", "warning", "-stats", "-hide_banner", NULL };
 	if ( spawn_process(argv, &ffmpeg_pid, NULL, &ffmpeg_stdout) == -1 ) {
 		perror("couldn't spawn ffmpeg");
+		fclose(output_file);
+		return EXIT_FAILURE;
 	}
 
 	const size_t png_buffer_size = VIDEO_WIDTH * VIDEO_HEIGHT * 4 * 3; // ¯\_(ツ)_/¯
@@ -214,6 +216,7 @@ int b2v_encode(const char *input, const char *output, int block_size,
 	struct stat input_stat; // .st_size is size in bytes
 	if (fstat(input_fd, &input_stat) != 0) {
 		perror("couldn't stat() input file");
+		fclose(input_file);
 		return EXIT_FAILURE;
 	}
 
@@ -224,6 +227,7 @@ int b2v_encode(const char *input, const char *output, int block_size,
 		(char *)output, "-hide_banner", "-y", "-v", "warning", "-stats", NULL };
 	if ( spawn_process(argv, &ffmpeg_pid, &ffmpeg_stdin, NULL) == -1 ) {
 		perror("couldn't spawn ffmpeg");
+		fclose(input_file);
 		return EXIT_FAILURE;
 	}
 
@@ -270,6 +274,7 @@ int b2v_encode(const char *input, const char *output, int block_size,
 		}
 	}
 
+	fclose(input_file);
 	free(image_data);
 	close(ffmpeg_stdin);
 

@@ -102,7 +102,7 @@ int b2v_decode(const char *input, const char *output,
 	int ffmpeg_stdout = -1;
 	pid_t ffmpeg_pid = -1;
 	char *argv[] = { "ffmpeg", "-i", (char *)input, "-c:v", "png", "-f",
-		"image2pipe", "-", NULL };
+		"image2pipe", "-", "-v", "warning", "-stats", "-hide_banner", NULL };
 	if ( spawn_process(argv, &ffmpeg_pid, NULL, &ffmpeg_stdout) == -1 ) {
 		perror("couldn't spawn ffmpeg");
 	}
@@ -221,7 +221,7 @@ int b2v_encode(const char *input, const char *output, int block_size,
 	pid_t ffmpeg_pid = -1;
 	char *argv[] = { "ffmpeg", "-f", "image2pipe", "-framerate", "30", "-i",
 		"-", "-c:v", "libx264", "-vf", "format=yuv420p", "-movflags", "+faststart",
-		(char *)output, "-hide_banner", "-y", NULL };
+		(char *)output, "-hide_banner", "-y", "-v", "warning", "-stats", NULL };
 	if ( spawn_process(argv, &ffmpeg_pid, &ffmpeg_stdin, NULL) == -1 ) {
 		perror("couldn't spawn ffmpeg");
 		return EXIT_FAILURE;

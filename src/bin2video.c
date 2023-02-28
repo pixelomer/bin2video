@@ -5,9 +5,8 @@
 #include <stdbool.h>
 #include <errno.h>
 #include <string.h>
-#include "stbi_image_write_fd.h"
 #include "bin2video.h"
-#include "spawn.h"
+#include "subprocess.h"
 
 #define INTERNAL_WIDTH 320
 #define INTERNAL_HEIGHT 180
@@ -15,13 +14,8 @@
 #define VIDEO_WIDTH (VIDEO_SCALE * INTERNAL_WIDTH)
 #define VIDEO_HEIGHT (VIDEO_SCALE * INTERNAL_HEIGHT)
 
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#define STBI_WRITE_NO_STDIO
-#include "stb_image_write.h"
-
-#define STB_IMAGE_IMPLEMENTATION
-#define STBI_ONLY_PNG
-#include "stb_image.h"
+//FIXME: not affected by other definitions
+#define VIDEO_RESOLUTION "1280x720"
 
 // scale_up(image_in, image_out, 100, 100, 5)
 //   --> takes a 100x100 image, returns a 500x500 image
@@ -93,25 +87,25 @@ void write_next_bit(FILE *file, int value, int *byte, int *bit) {
 int b2v_decode(const char *input, const char *output,
 	enum b2v_pixel_mode pixel_mode)
 {
-	FILE *output_file = fopen(output, "w");
+	FILE *output_file = fopen(output, "wb");
 	if (output_file == NULL) {
 		perror("couldn't open output for writing");
 		return EXIT_FAILURE;
 	}
 	
-	int ffmpeg_stdout = -1;
-	pid_t ffmpeg_pid = -1;
-	char *argv[] = { "ffmpeg", "-i", (char *)input, "-c:v", "png", "-f",
-		"image2pipe", "-", "-v", "warning", "-stats", "-hide_banner", NULL };
-	if ( spawn_process(argv, &ffmpeg_pid, NULL, &ffmpeg_stdout) == -1 ) {
+	char *argv[] = { "ffmpeg", "-i", (char *)input, "-f", "rawvideo", "-pix_fmt",
+		"rgb24", "-", "-v", "quiet", "-hide_banner", NULL };
+	struct subprocess_s ffmpeg_process;
+	int subprocess_ret = subprocess_create((const char * const *)argv,
+		subprocess_option_no_window | subprocess_option_inherit_environment |
+		subprocess_option_search_user_path, &ffmpeg_process);
+	if ( subprocess_ret != 0 ) {
 		perror("couldn't spawn ffmpeg");
 		fclose(output_file);
 		return EXIT_FAILURE;
 	}
 
-	const size_t png_buffer_size = VIDEO_WIDTH * VIDEO_HEIGHT * 4 * 3; // ¯\_(ツ)_/¯
-	size_t png_buffer_pos = 0;
-	uint8_t *png_buffer = malloc(png_buffer_size);
+	FILE *ffmpeg_stdout = ffmpeg_process.stdout_file;
 
 	int bit=0, byte=0;
 
@@ -121,82 +115,49 @@ int b2v_decode(const char *input, const char *output,
 	const int pixels = width * height;
 	
 	uint8_t *image_data = malloc(pixels * 3);
+	uint8_t *image_scaled = malloc(pixels * scale * scale * 3);
 
 	int result = -1;
 	while (result == -1) {
-		while (png_buffer_pos < png_buffer_size) {
-			size_t chunk = 0x8000;
-			if ((png_buffer_size - png_buffer_pos) < chunk) {
-				chunk = png_buffer_size - png_buffer_pos;
-			}
-			ssize_t ret = read(ffmpeg_stdout, png_buffer + png_buffer_pos, chunk);
-			if (ret > 0) {
-				png_buffer_pos += ret;
-			}
-			else if (ret == 0) {
-				break;
-			}
-			else {
-				perror("failed to read from ffmpeg");
-				break;
-			}
-		}
-
-		FILE *png_file = fmemopen(png_buffer, png_buffer_size, "r");
-		
-		int real_width, real_height, comp;
-		stbi_uc *image_scaled = stbi_load_from_file(png_file, &real_width,
-			&real_height, &comp, 3);
-		if (image_scaled == NULL) {
-			result = EXIT_SUCCESS;
-			goto cleanup;
-		}
-		if ((real_height != 720) || (real_width != 1280) || (comp != 3)) {
-			printf("invalid image\n");
+		int read_ret = fread(image_scaled, pixels * scale * scale * 3, 1,
+			ffmpeg_stdout);
+		if (read_ret == -1) {
 			result = EXIT_FAILURE;
-			stbi_image_free(image_scaled);
-			goto cleanup;
+			break;
+		}
+		else if (read_ret == 0) {
+			result = EXIT_SUCCESS;
+			break;
 		}
 		scale_down(image_scaled, image_data, width, height, scale);
 		for (int i=0; i<pixels; i++) {
 			switch (pixel_mode) {
 				int value;
 				case B2V_1BIT_PER_PIXEL:
-					value = ((int)image_data[i * comp] + (int)image_data[i * comp + 1]
-						+ (int)image_data[i * comp + 2]) / 3;
+					value = ((int)image_data[i * 3] + (int)image_data[i * 3 + 1]
+						+ (int)image_data[i * 3 + 2]) / 3;
 					value = (value > 127) ? 1 : 0;
 					write_next_bit(output_file, value, &byte, &bit);
 					break;
 				case B2V_3BIT_PER_PIXEL:
 					for (int j=0; j<3; j++) {
-						value = image_data[i * comp + j];
+						value = image_data[i * 3 + j];
 						value = (value > 127) ? 1 : 0;
 						write_next_bit(output_file, value, &byte, &bit);
 					}
 					break;
 			}
 		}
-		stbi_image_free(image_scaled);
-
-	cleanup:;
-		long file_end_pos = ftell(png_file);
-		fclose(png_file);
-
-		memmove(png_buffer, png_buffer + file_end_pos, png_buffer_size - file_end_pos);
-		png_buffer_pos -= file_end_pos;
-		memset(png_buffer + png_buffer_pos, 0, png_buffer_size - png_buffer_pos);
 	}
 
-	close(ffmpeg_stdout);
+	fclose(ffmpeg_stdout);
 	free(image_data);
-	free(png_buffer);
 	fclose(output_file);
 	
-	int ffmpeg_status;
-	waitpid(ffmpeg_pid, &ffmpeg_status, 0);
-
+	subprocess_join(&ffmpeg_process, NULL);
+	subprocess_destroy(&ffmpeg_process);
 	if (result == 0) {
-		return WEXITSTATUS(ffmpeg_status);
+		return ffmpeg_process.return_status;
 	}
 	else {
 		return result;
@@ -206,7 +167,7 @@ int b2v_decode(const char *input, const char *output,
 int b2v_encode(const char *input, const char *output, int block_size,
 	enum b2v_pixel_mode pixel_mode)
 {
-	FILE *input_file = fopen(input, "r");
+	FILE *input_file = fopen(input, "rb");
 	if (input_file == NULL) {
 		perror("couldn't open input for reading");
 		return EXIT_FAILURE;
@@ -220,16 +181,22 @@ int b2v_encode(const char *input, const char *output, int block_size,
 		return EXIT_FAILURE;
 	}
 
-	int ffmpeg_stdin = -1;
-	pid_t ffmpeg_pid = -1;
-	char *argv[] = { "ffmpeg", "-f", "image2pipe", "-framerate", "30", "-i",
-		"-", "-c:v", "libx264", "-vf", "format=yuv420p", "-movflags", "+faststart",
-		(char *)output, "-hide_banner", "-y", "-v", "warning", "-stats", NULL };
-	if ( spawn_process(argv, &ffmpeg_pid, &ffmpeg_stdin, NULL) == -1 ) {
-		perror("couldn't spawn ffmpeg");
+	struct subprocess_s ffmpeg_process;
+	char *argv[] = { "ffmpeg", "-framerate", "30", "-s", VIDEO_RESOLUTION, "-f",
+		"rawvideo", "-pix_fmt", "rgb24", "-i", "-", "-c:v",
+		"libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", (char *)output,
+		"-hide_banner", "-y", "-v", "quiet", NULL };
+	int subprocess_ret = subprocess_create((const char * const *)argv,
+		subprocess_option_no_window | subprocess_option_inherit_environment |
+		subprocess_option_search_user_path, &ffmpeg_process);
+	if ( subprocess_ret == -1 ) {
+		fprintf(stderr, "couldn't spawn ffmpeg\n");
 		fclose(input_file);
 		return EXIT_FAILURE;
 	}
+
+	FILE *ffmpeg_stdin = ffmpeg_process.stdin_file;
+	FILE *ffmpeg_stderr = ffmpeg_process.stderr_file;
 
 	const int scale = VIDEO_SCALE;
 	const int width = INTERNAL_WIDTH;
@@ -266,20 +233,21 @@ int b2v_encode(const char *input, const char *output, int block_size,
 		}
 		if (pixel_idx >= pixels) {
 			scale_up(image_data, image_scaled, width, height, scale);
-			int ret = stbi_write_png_to_fd(ffmpeg_stdin, width * scale, height * scale, 3, image_scaled, 0);
-			if (ret < 0) {
-				return EXIT_FAILURE;
-			}
+			fwrite(image_scaled, width * height * scale * scale * 3, 1, ffmpeg_stdin);
 			pixel_idx = 0;
 		}
 	}
 
 	fclose(input_file);
+	fclose(ffmpeg_stdin);
 	free(image_data);
-	close(ffmpeg_stdin);
 
-	int ffmpeg_status;
-	waitpid(ffmpeg_pid, &ffmpeg_status, 0);
-
-	return WEXITSTATUS(ffmpeg_status);
+	subprocess_ret = subprocess_join(&ffmpeg_process, NULL);
+	subprocess_destroy(&ffmpeg_process);
+	if (subprocess_ret == 0) {
+		return ffmpeg_process.return_status;
+	}
+	else {
+		return subprocess_ret;
+	}
 }

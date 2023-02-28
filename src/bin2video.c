@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <errno.h>
 #include <string.h>
+#include <math.h>
 #include "bin2video.h"
 #include "subprocess.h"
 
@@ -65,7 +66,8 @@ int read_next_bit(FILE *file, int *byte, int *bit) {
 	if (*bit == 0) {
 		int c = fgetc(file);
 		if (c == EOF) {
-			return EOF;
+			// it doesn't matter
+			return 1;
 		}
 		*byte = c;
 	}
@@ -84,9 +86,7 @@ void write_next_bit(FILE *file, int value, int *byte, int *bit) {
 	}
 }
 
-int b2v_decode(const char *input, const char *output,
-	enum b2v_pixel_mode pixel_mode)
-{
+int b2v_decode(const char *input, const char *output, int bits_per_pixel) {
 	FILE *output_file = fopen(output, "wb");
 	if (output_file == NULL) {
 		perror("couldn't open output for writing");
@@ -113,6 +113,16 @@ int b2v_decode(const char *input, const char *output,
 	const int width = INTERNAL_WIDTH;
 	const int height = INTERNAL_HEIGHT;
 	const int pixels = width * height;
+
+	int bits_per_comp[3];
+	double div[3];
+	for (int i=0; i<3; i++) {
+		bits_per_comp[i] = bits_per_pixel / 3;
+		if ((bits_per_pixel % 3) > i) {
+			bits_per_comp[i] += 1;
+		}
+		div[i] = 255.0 / (double)((1 << bits_per_comp[i]) - 1);
+	}
 	
 	uint8_t *image_data = malloc(pixels * 3);
 	uint8_t *image_scaled = malloc(pixels * scale * scale * 3);
@@ -131,19 +141,21 @@ int b2v_decode(const char *input, const char *output,
 		}
 		scale_down(image_scaled, image_data, width, height, scale);
 		for (int i=0; i<pixels; i++) {
-			switch (pixel_mode) {
+			switch (bits_per_pixel) {
 				int value;
-				case B2V_1BIT_PER_PIXEL:
+				case 1:
 					value = ((int)image_data[i * 3] + (int)image_data[i * 3 + 1]
 						+ (int)image_data[i * 3 + 2]) / 3;
 					value = (value > 127) ? 1 : 0;
 					write_next_bit(output_file, value, &byte, &bit);
 					break;
-				case B2V_3BIT_PER_PIXEL:
+				default:
 					for (int j=0; j<3; j++) {
-						value = image_data[i * 3 + j];
-						value = (value > 127) ? 1 : 0;
-						write_next_bit(output_file, value, &byte, &bit);
+						double color = (double)image_data[i * 3 + j];
+						value = (int)round(color / div[j]);
+						for (int b=bits_per_comp[j]-1; b>=0; b--) {
+							write_next_bit(output_file, ((uint8_t)value >> b) & 1, &byte, &bit);
+						}
 					}
 					break;
 			}
@@ -165,7 +177,7 @@ int b2v_decode(const char *input, const char *output,
 }
 
 int b2v_encode(const char *input, const char *output, int block_size,
-	enum b2v_pixel_mode pixel_mode)
+	int bits_per_pixel)
 {
 	FILE *input_file = fopen(input, "rb");
 	if (input_file == NULL) {
@@ -196,7 +208,6 @@ int b2v_encode(const char *input, const char *output, int block_size,
 	}
 
 	FILE *ffmpeg_stdin = ffmpeg_process.stdin_file;
-	FILE *ffmpeg_stderr = ffmpeg_process.stderr_file;
 
 	const int scale = VIDEO_SCALE;
 	const int width = INTERNAL_WIDTH;
@@ -208,18 +219,31 @@ int b2v_encode(const char *input, const char *output, int block_size,
 
 	int tbit=0, tbyte=0;
 	int pixel_idx = 0;
+	int bits_per_comp[3];
+	double div[3];
+	for (int i=0; i<3; i++) {
+		bits_per_comp[i] = bits_per_pixel / 3;
+		if ((bits_per_pixel % 3) > i) {
+			bits_per_comp[i] += 1;
+		}
+		div[i] = 255.0 / (double)((1 << bits_per_comp[i]) - 1);
+	}
 	while ( !feof(input_file) ) {
-		switch (pixel_mode) {
+		switch (bits_per_pixel) {
 			int value;
-			case B2V_1BIT_PER_PIXEL:
-				value = read_next_bit(input_file, &tbyte, &tbit);
+			case 1:
+				value = read_next_bit(input_file, &tbyte, &tbit) & 1;
 				value = value ? 0xFF : 0x00;
 				memset(image_data + (pixel_idx * 3), value, 3);
 				break;
-			case B2V_3BIT_PER_PIXEL:
+			default:
 				for (int i=0; i<3; i++) {
-					value = read_next_bit(input_file, &tbyte, &tbit);
-					value = value ? 0xFF : 0x00;
+					value = 0;
+					for (int b=0; b<bits_per_comp[i]; b++) {
+						value <<= 1;
+						value |= read_next_bit(input_file, &tbyte, &tbit) & 1;
+					}
+					value = (uint8_t)round(div[i] * (double)value);
 					image_data[pixel_idx * 3 + i] = value;
 				}
 				break;

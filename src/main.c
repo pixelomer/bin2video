@@ -27,7 +27,7 @@ int main(int argc, char **argv) {
 	char *input_file = NULL;
 	char *output_file = NULL;
 	char operation_mode = 0;
-	enum b2v_pixel_mode pixel_mode = 1;
+	int bits_per_pixel = 1;
 	int opt;
 	bool opts[0x100] = {};
 	while ((opt = getopt(argc, argv, "b:de")) != -1) {
@@ -36,7 +36,7 @@ int main(int argc, char **argv) {
 		switch (opt) {
 			case 'b':
 				errno = 0;
-				pixel_mode = strtol(optarg, NULL, 10);
+				bits_per_pixel = strtol(optarg, NULL, 10);
 				if (errno != 0) USAGE();
 				break;
 			case 'd':
@@ -48,23 +48,19 @@ int main(int argc, char **argv) {
 				USAGE();
 		}
 	}
-	if (optind != (argc - 2)) {
+	if ((bits_per_pixel < 0) || (bits_per_pixel > 24)) {
 		USAGE();
 	}
-	switch (pixel_mode) {
-		case B2V_1BIT_PER_PIXEL:
-		case B2V_3BIT_PER_PIXEL:
-			break;
-		default:
-			USAGE();
+	if (optind != (argc - 2)) {
+		USAGE();
 	}
 	input_file = argv[optind];
 	output_file = argv[optind + 1];
 	switch (operation_mode) {
 		case 'd':
-			return b2v_decode(input_file, output_file, pixel_mode);
+			return b2v_decode(input_file, output_file, bits_per_pixel);
 		case 'e':
-			return b2v_encode(input_file, output_file, 1, pixel_mode);
+			return b2v_encode(input_file, output_file, 1, bits_per_pixel);
 		default:
 			USAGE();
 	}

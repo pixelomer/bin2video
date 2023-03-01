@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <string.h>
 #include <math.h>
+#include <stdbool.h>
 #include "bin2video.h"
 #include "subprocess.h"
 
@@ -62,27 +63,142 @@ void scale_down(uint8_t *in, uint8_t *out, int out_width, int out_height, int sc
 	}
 }
 
-int read_next_bit(FILE *file, int *byte, int *bit) {
-	if (*bit == 0) {
-		int c = fgetc(file);
-		if (c == EOF) {
-			// it doesn't matter
-			return 1;
+int next_bit(uint8_t *buffer, int size, int *tbyte, int *tbit, int *idx) {
+	if (*tbit == 0) {
+		if (*idx == size) {
+			*tbyte = -1;
+			return 0;
 		}
-		*byte = c;
+		*tbyte = buffer[(*idx)++];
+		*tbit = 0;
 	}
-	int ret = ((*byte) >> (*bit)) & 1;
-	*bit = (1 + *bit) % 8;
+	int ret = (*tbyte >> (*tbit)++) & 1;
+	if (*tbit == 8) {
+		*tbit = 0;
+	}
 	return ret;
 }
 
-void write_next_bit(FILE *file, int value, int *byte, int *bit) {
-	*byte |= value << *bit;
-	*bit += 1;
-	if (*bit == 8) {
-		fputc(*byte, file);
-		*bit = 0;
-		*byte = 0;
+int fill_image_from_buffer(uint8_t *image, int blocks, int bits_per_pixel,
+	uint8_t *buffer, int size, int *tbyte, int *tbit)
+{
+	int bits_per_comp[3];
+	double div[3];
+	for (int i=0; i<3; i++) {
+		bits_per_comp[i] = bits_per_pixel / 3;
+		if ((bits_per_pixel % 3) > i) {
+			bits_per_comp[i] += 1;
+		}
+		div[i] = 255.0 / (double)((1 << bits_per_comp[i]) - 1);
+	}
+
+	if (*tbyte == -1) {
+		*tbyte = 0;
+	}
+	int buffer_idx = 0;
+	int image_idx=0;
+	for (image_idx=0; (image_idx < blocks) && (*tbyte != -1); image_idx++) {
+		switch (bits_per_pixel) {
+			int value;
+			case 1:
+				value = next_bit(buffer, size, tbyte, tbit, &buffer_idx) * 0xFF;
+				memset(image + (image_idx * 3), value, 3);
+				break;
+			default:
+				for (int c=0; c<3; c++) {
+					value = 0;
+					for (int b=0; b<bits_per_comp[c]; b++) {
+						value <<= 1;
+						value |= next_bit(buffer, size, tbyte, tbit, &buffer_idx);
+					}
+					value = (uint8_t)round(div[c] * (double)value);
+					image[image_idx * 3 + c] = value;
+				}
+				break;
+		}
+	}
+	memset(image + image_idx * 3, 0, (blocks - image_idx) * 3);
+
+	return buffer_idx;
+}
+
+void fill_image_from_file(uint8_t *image, int blocks, int bits_per_pixel,
+	FILE *file, uint8_t **buffer, size_t *buffer_size, size_t *bytes_available,
+	int *tbyte, int *tbit)
+{
+	size_t required_buffer_size = (blocks * bits_per_pixel) / 8 + 1;
+	if (*buffer == NULL) {
+		*buffer = malloc(required_buffer_size);
+	}
+	else if (*buffer_size < required_buffer_size) { 
+		*buffer = realloc(*buffer, required_buffer_size);
+	}
+	*buffer_size = required_buffer_size;
+	*bytes_available += fread(*buffer + *bytes_available, 1,
+		*buffer_size - *bytes_available, file);
+	int next_idx = fill_image_from_buffer(image, blocks, bits_per_pixel,
+		*buffer, *bytes_available, tbyte, tbit);
+	memmove(*buffer, *buffer + next_idx, *bytes_available - next_idx);
+	*bytes_available -= next_idx;
+}
+
+void write_next_bit(FILE *file, int value, int *tbyte, int *tbit) {
+	*tbyte |= value << *tbit;
+	*tbit += 1;
+	if (*tbit == 8) {
+		fputc(*tbyte, file);
+		*tbit = 0;
+		*tbyte = 0;
+	}
+}
+
+int spawn(const char **argv, struct subprocess_s *proc, bool enable_async) {
+	int options = subprocess_option_no_window | subprocess_option_inherit_environment |
+		subprocess_option_search_user_path;
+	if (enable_async) {
+		options |= subprocess_option_enable_async;
+	}
+	return subprocess_create((const char * const *)argv, options, proc);
+}
+
+int video_resolution(const char *file, int *width_pt, int *height_pt) {
+	const char *argv[] = { "ffprobe", "-v", "error", "-select_streams", "v:0",
+		"-show_entries", "stream=width,height", "-of", "csv=s=x:p=0", file, NULL };
+	
+	struct subprocess_s ffmpeg_process;
+	int subprocess_ret = spawn(argv, &ffmpeg_process, false);
+	if ( subprocess_ret != 0 ) {
+		fprintf(stderr, "couldn't spawn ffprobe\n");
+		return -1;
+	}
+
+	int exit_code;
+	subprocess_ret = subprocess_join(&ffmpeg_process, &exit_code);
+
+	char resolution[33];
+	memset(resolution, 0, sizeof(resolution));
+	subprocess_read_stdout(&ffmpeg_process, resolution, sizeof(resolution)-1);
+	fread(resolution, 1, sizeof(resolution)-1, ffmpeg_process.stdout_file);
+
+	subprocess_destroy(&ffmpeg_process);
+	if (subprocess_ret != 0) {
+		return -1;
+	}
+	if (exit_code == 0) {
+		int width, height;
+		if (sscanf(resolution, "%dx%d\n", &width, &height) != 2) {
+			return -1;
+		}
+		if (width_pt != NULL) {
+			*width_pt = width;
+		}
+		if (height_pt != NULL) {
+			*height_pt = height;
+		}
+		return 0;
+	}
+	else {
+		return exit_code;
 	}
 }
 
@@ -92,20 +208,22 @@ int b2v_decode(const char *input, const char *output, int bits_per_pixel) {
 		perror("couldn't open output for writing");
 		return EXIT_FAILURE;
 	}
+
+	int real_width, real_height;
+	if (video_resolution(input, &real_width, &real_height) != 0) {
+		fprintf(stderr, "failed to get video resolution\n");
+		return EXIT_FAILURE;
+	}
 	
-	char *argv[] = { "ffmpeg", "-i", (char *)input, "-f", "rawvideo", "-pix_fmt",
+	const char *argv[] = { "ffmpeg", "-i", (char *)input, "-f", "rawvideo", "-pix_fmt",
 		"rgb24", "-", "-v", "quiet", "-hide_banner", NULL };
 	struct subprocess_s ffmpeg_process;
-	int subprocess_ret = subprocess_create((const char * const *)argv,
-		subprocess_option_no_window | subprocess_option_inherit_environment |
-		subprocess_option_search_user_path, &ffmpeg_process);
-	if ( subprocess_ret != 0 ) {
-		perror("couldn't spawn ffmpeg");
+	int subprocess_ret = spawn(argv, &ffmpeg_process, true);
+	if (subprocess_ret != 0) {
+		fprintf(stderr, "couldn't spawn ffmpeg\n");
 		fclose(output_file);
 		return EXIT_FAILURE;
 	}
-
-	FILE *ffmpeg_stdout = ffmpeg_process.stdout_file;
 
 	int bit=0, byte=0;
 
@@ -129,13 +247,9 @@ int b2v_decode(const char *input, const char *output, int bits_per_pixel) {
 
 	int result = -1;
 	while (result == -1) {
-		int read_ret = fread(image_scaled, pixels * scale * scale * 3, 1,
-			ffmpeg_stdout);
-		if (read_ret == -1) {
-			result = EXIT_FAILURE;
-			break;
-		}
-		else if (read_ret == 0) {
+		unsigned int read_ret = subprocess_read_stdout(&ffmpeg_process,
+			(char *)image_scaled, pixels * scale * scale * 3);
+		if (read_ret == 0) {
 			result = EXIT_SUCCESS;
 			break;
 		}
@@ -162,7 +276,6 @@ int b2v_decode(const char *input, const char *output, int bits_per_pixel) {
 		}
 	}
 
-	fclose(ffmpeg_stdout);
 	free(image_data);
 	fclose(output_file);
 	
@@ -176,8 +289,8 @@ int b2v_decode(const char *input, const char *output, int bits_per_pixel) {
 	}
 }
 
-int b2v_encode(const char *input, const char *output, int block_size,
-	int bits_per_pixel)
+int b2v_encode(const char *input, const char *output, int real_width,
+	int real_height, int initial_block_size, int block_size, int bits_per_pixel)
 {
 	FILE *input_file = fopen(input, "rb");
 	if (input_file == NULL) {
@@ -194,13 +307,11 @@ int b2v_encode(const char *input, const char *output, int block_size,
 	}
 
 	struct subprocess_s ffmpeg_process;
-	char *argv[] = { "ffmpeg", "-framerate", "30", "-s", VIDEO_RESOLUTION, "-f",
+	const char *argv[] = { "ffmpeg", "-framerate", "30", "-s", VIDEO_RESOLUTION, "-f",
 		"rawvideo", "-pix_fmt", "rgb24", "-i", "-", "-c:v",
 		"libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", (char *)output,
 		"-hide_banner", "-y", "-v", "quiet", NULL };
-	int subprocess_ret = subprocess_create((const char * const *)argv,
-		subprocess_option_no_window | subprocess_option_inherit_environment |
-		subprocess_option_search_user_path, &ffmpeg_process);
+	int subprocess_ret = spawn(argv, &ffmpeg_process, false);
 	if ( subprocess_ret == -1 ) {
 		fprintf(stderr, "couldn't spawn ffmpeg\n");
 		fclose(input_file);
@@ -209,67 +320,35 @@ int b2v_encode(const char *input, const char *output, int block_size,
 
 	FILE *ffmpeg_stdin = ffmpeg_process.stdin_file;
 
-	const int scale = VIDEO_SCALE;
-	const int width = INTERNAL_WIDTH;
-	const int height = INTERNAL_HEIGHT;
-	const int pixels = width * height;
+	int current_block_size = block_size;
+	int width = real_width / current_block_size;
+	int height = real_height / current_block_size;
+	const int blocks = width * height;
+	const int pixels = real_width * real_height;
 	
-	uint8_t *image_data = malloc(pixels * 3);
-	uint8_t *image_scaled = malloc(pixels * scale * scale * 3);
-
+	uint8_t *image_data = malloc(blocks * 3);
+	uint8_t *image_scaled = malloc(pixels * 3);
+	uint8_t *fill_buffer = NULL;
+	size_t fill_buffer_size = 0;
+	size_t fill_buffer_available = 0;
 	int tbit=0, tbyte=0;
-	int pixel_idx = 0;
-	int bits_per_comp[3];
-	double div[3];
-	for (int i=0; i<3; i++) {
-		bits_per_comp[i] = bits_per_pixel / 3;
-		if ((bits_per_pixel % 3) > i) {
-			bits_per_comp[i] += 1;
-		}
-		div[i] = 255.0 / (double)((1 << bits_per_comp[i]) - 1);
-	}
+
 	while ( !feof(input_file) ) {
-		switch (bits_per_pixel) {
-			int value;
-			case 1:
-				value = read_next_bit(input_file, &tbyte, &tbit) & 1;
-				value = value ? 0xFF : 0x00;
-				memset(image_data + (pixel_idx * 3), value, 3);
-				break;
-			default:
-				for (int i=0; i<3; i++) {
-					value = 0;
-					for (int b=0; b<bits_per_comp[i]; b++) {
-						value <<= 1;
-						value |= read_next_bit(input_file, &tbyte, &tbit) & 1;
-					}
-					value = (uint8_t)round(div[i] * (double)value);
-					image_data[pixel_idx * 3 + i] = value;
-				}
-				break;
-		}
-		pixel_idx += 1;
-		if (feof(input_file)) {
-			uint8_t *start = image_data + (pixel_idx * 3);
-			uint8_t *end = image_data + (pixels * 3);
-			memset(start, 0, end - start);
-			pixel_idx = pixels;
-		}
-		if (pixel_idx >= pixels) {
-			scale_up(image_data, image_scaled, width, height, scale);
-			fwrite(image_scaled, width * height * scale * scale * 3, 1, ffmpeg_stdin);
-			pixel_idx = 0;
-		}
+		fill_image_from_file(image_data, blocks, bits_per_pixel, input_file,
+			&fill_buffer, &fill_buffer_size, &fill_buffer_available, &tbyte, &tbit);
+		scale_up(image_data, image_scaled, width, height, current_block_size);
+		fwrite(image_scaled, pixels * 3, 1, ffmpeg_stdin);
 	}
 
 	fclose(input_file);
 	fclose(ffmpeg_stdin);
 	free(image_data);
 
-	subprocess_ret = subprocess_join(&ffmpeg_process, NULL);
+	int exit_code;
+	subprocess_ret = subprocess_join(&ffmpeg_process, &exit_code);
 	subprocess_destroy(&ffmpeg_process);
 	if (subprocess_ret == 0) {
-		return ffmpeg_process.return_status;
+		return exit_code;
 	}
 	else {
 		return subprocess_ret;

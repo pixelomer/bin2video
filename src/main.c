@@ -13,13 +13,21 @@ int main(int argc, char **argv) {
 		"  %s [options] -d video.mp4 data.bin\n"
 		"\n"
 		"OPTIONS:\n"
-		"  -b <bits> Bits per pixel. Supported values: 1, 3\n"
-		"            Default value is 1 (black and white). Higher values\n"
-		"            are more likely to cause corruption.\n"
-		"  -e        Encode mode. Takes an input binary file and produces\n"
-		"            a video file.\n"
-		"  -d        Decode mode. Takes an input video file and produces\n"
-		"            the original file.\n";
+		"  -e          Encode mode. Takes an input binary file and produces\n"
+		"              a video file.\n"
+		"  -d          Decode mode. Takes an input video file and produces\n"
+		"              the original binary file.\n"
+		"  -L          Shows license.\n"
+		"  -b <bits>   Bits per pixel. Defaults to 1 (black and white).\n"
+		"  -w <width>  Sets video width. Defaults to 1280.\n"
+		"  -h <height> Sets video height. Defaults to 720.\n"
+		"  -s <size>   Sets the size of each block. Defaults to 4.\n"
+		"\n"
+		"NOTES:\n"
+		"  Increasing the number of bits per pixel will increase the risk of\n"
+		"  corruption. Increasing the block size will decrease the risk of\n"
+		"  corruption. With the default configuration, more than 3 bits per\n"
+		"  pixel is very likely to cause corruption.\n";
 #define USAGE() { \
 	fprintf(stderr, usage_str, argv[0], argv[0]); \
 	return EXIT_FAILURE; \
@@ -60,7 +68,7 @@ int main(int argc, char **argv) {
 		case 'd':
 			return b2v_decode(input_file, output_file, bits_per_pixel);
 		case 'e':
-			return b2v_encode(input_file, output_file, 1, bits_per_pixel);
+			return b2v_encode(input_file, output_file, 1280, 720, 4, 4, bits_per_pixel);
 		default:
 			USAGE();
 	}

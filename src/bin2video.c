@@ -63,7 +63,7 @@ void scale_down(uint8_t *in, uint8_t *out, int out_width, int out_height, int sc
 	}
 }
 
-int next_bit(uint8_t *buffer, int size, int *tbyte, int *tbit, int *idx) {
+int get_bit(uint8_t *buffer, int size, int *tbyte, int *tbit, int *idx) {
 	if (*tbit == 0) {
 		if (*idx == size) {
 			*tbyte = -1;
@@ -77,6 +77,15 @@ int next_bit(uint8_t *buffer, int size, int *tbyte, int *tbit, int *idx) {
 		*tbit = 0;
 	}
 	return ret;
+}
+
+void put_bit(uint8_t *buffer, int bit, int *tbyte, int *tbit, int *idx) {
+	*tbyte |= bit << (*tbit)++;
+	if (*tbit == 8) {
+		buffer[(*idx)++] = *tbyte;
+		*tbyte = 0;
+		*tbit = 0;
+	}
 }
 
 struct b2v_context {
@@ -145,7 +154,7 @@ int b2v_fill_image(struct b2v_context *ctx) {
 		switch (ctx->bits_per_pixel) {
 			int value;
 			case 1:
-				value = next_bit(ctx->buffer, ctx->bytes_available, &ctx->tbyte, &ctx->tbit,
+				value = get_bit(ctx->buffer, ctx->bytes_available, &ctx->tbyte, &ctx->tbit,
 					&buffer_idx) * 0xFF;
 				memset(ctx->image + (image_idx * 3), value, 3);
 				break;
@@ -154,7 +163,7 @@ int b2v_fill_image(struct b2v_context *ctx) {
 					value = 0;
 					for (int b=0; b<bits_per_comp[c]; b++) {
 						value <<= 1;
-						value |= next_bit(ctx->buffer, ctx->bytes_available, &ctx->tbyte,
+						value |= get_bit(ctx->buffer, ctx->bytes_available, &ctx->tbyte,
 							&ctx->tbit, &buffer_idx);
 					}
 					value = (uint8_t)round(div[c] * (double)value);
@@ -177,7 +186,47 @@ void b2v_fill_image_from_file(struct b2v_context *ctx, FILE *file) {
 	ctx->bytes_available -= next_idx;
 }
 
-void write_next_bit(FILE *file, int value, int *tbyte, int *tbit) {
+int b2v_decode_image(struct b2v_context *ctx) {
+	int bits_per_comp[3];
+	double div[3];
+	for (int i=0; i<3; i++) {
+		bits_per_comp[i] = ctx->bits_per_pixel / 3;
+		if ((ctx->bits_per_pixel % 3) > i) {
+			bits_per_comp[i] += 1;
+		}
+		div[i] = 255.0 / (double)((1 << bits_per_comp[i]) - 1);
+	}
+
+	scale_down(ctx->image_scaled, ctx->image, ctx->width, ctx->height,
+		ctx->scale);
+	int buffer_idx = 0;
+	int blocks = ctx->width * ctx->height;
+	for (int i=0; i<blocks; i++) {
+		switch (ctx->bits_per_pixel) {
+			int value;
+			case 1:
+				value = ((int)ctx->image[i * 3] + (int)ctx->image[i * 3 + 1]
+					+ (int)ctx->image[i * 3 + 2]) / 3;
+				value = (value > 127) ? 1 : 0;
+				put_bit(ctx->buffer, value, &ctx->tbyte, &ctx->tbit, &buffer_idx);
+				break;
+			default:
+				for (int j=0; j<3; j++) {
+					double color = (double)ctx->image[i * 3 + j];
+					value = (int)round(color / div[j]);
+					for (int b=bits_per_comp[j]-1; b>=0; b--) {
+						put_bit(ctx->buffer, ((uint8_t)value >> b) & 1, &ctx->tbyte,
+							&ctx->tbit, &buffer_idx);
+					}
+				}
+				break;
+		}
+	}
+
+	return buffer_idx;
+}
+
+void write_get_bit(FILE *file, int value, int *tbyte, int *tbit) {
 	*tbyte |= value << *tbit;
 	*tbit += 1;
 	if (*tbit == 8) {
@@ -276,42 +325,23 @@ int b2v_decode(const char *input, const char *output, int bits_per_pixel) {
 		}
 		div[i] = 255.0 / (double)((1 << bits_per_comp[i]) - 1);
 	}
-	
-	uint8_t *image_data = malloc(pixels * 3);
-	uint8_t *image_scaled = malloc(pixels * scale * scale * 3);
+
+	struct b2v_context ctx;
+	b2v_context_init(&ctx, width, height, bits_per_pixel, scale);
 
 	int result = -1;
 	while (result == -1) {
 		unsigned int read_ret = subprocess_read_stdout(&ffmpeg_process,
-			(char *)image_scaled, pixels * scale * scale * 3);
+			(char *)ctx.image_scaled, pixels * scale * scale * 3);
 		if (read_ret == 0) {
 			result = EXIT_SUCCESS;
 			break;
 		}
-		scale_down(image_scaled, image_data, width, height, scale);
-		for (int i=0; i<pixels; i++) {
-			switch (bits_per_pixel) {
-				int value;
-				case 1:
-					value = ((int)image_data[i * 3] + (int)image_data[i * 3 + 1]
-						+ (int)image_data[i * 3 + 2]) / 3;
-					value = (value > 127) ? 1 : 0;
-					write_next_bit(output_file, value, &byte, &bit);
-					break;
-				default:
-					for (int j=0; j<3; j++) {
-						double color = (double)image_data[i * 3 + j];
-						value = (int)round(color / div[j]);
-						for (int b=bits_per_comp[j]-1; b>=0; b--) {
-							write_next_bit(output_file, ((uint8_t)value >> b) & 1, &byte, &bit);
-						}
-					}
-					break;
-			}
-		}
+		int ret = b2v_decode_image(&ctx);
+		fwrite(ctx.buffer, 1, ret, output_file);
 	}
 
-	free(image_data);
+	b2v_context_destroy(&ctx);
 	fclose(output_file);
 	
 	subprocess_join(&ffmpeg_process, NULL);

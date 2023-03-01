@@ -79,67 +79,102 @@ int next_bit(uint8_t *buffer, int size, int *tbyte, int *tbit, int *idx) {
 	return ret;
 }
 
-int fill_image_from_buffer(uint8_t *image, int blocks, int bits_per_pixel,
-	uint8_t *buffer, int size, int *tbyte, int *tbit)
+struct fill_context {
+	uint8_t *image;
+	uint8_t *buffer;
+	uint8_t *image_scaled;
+	int scale;
+	int tbyte;
+	int tbit;
+	int width;
+	int height;
+	int bits_per_pixel;
+	size_t buffer_size;
+	size_t bytes_available;
+};
+
+void fill_context_realloc(struct fill_context *ctx) {
+	int blocks = ctx->width * ctx->height;
+
+	if (ctx->buffer != NULL) free(ctx->buffer);
+	ctx->buffer_size = (blocks * ctx->bits_per_pixel) / 8 + 1;
+	ctx->buffer = malloc(ctx->buffer_size);
+	
+	if (ctx->image != NULL) free(ctx->image);
+	ctx->image = malloc(blocks * 3);
+
+	if (ctx->image_scaled != NULL) free(ctx->image_scaled);
+	ctx->image_scaled = malloc(blocks * ctx->scale * ctx->scale * 3);
+}
+
+void fill_context_init(int width, int height, int bits_per_pixel, int scale,
+	struct fill_context *ctx)
 {
+	memset(ctx, 0, sizeof(*ctx));
+	ctx->width = width;
+	ctx->height = height;
+	ctx->scale = scale;
+	ctx->bits_per_pixel = bits_per_pixel;
+	fill_context_realloc(ctx);
+}
+
+void fill_context_destroy(struct fill_context *ctx) {
+	free(ctx->buffer);
+	free(ctx->image);
+	free(ctx->image_scaled);
+}
+
+int fill_image(struct fill_context *ctx) {
 	int bits_per_comp[3];
 	double div[3];
 	for (int i=0; i<3; i++) {
-		bits_per_comp[i] = bits_per_pixel / 3;
-		if ((bits_per_pixel % 3) > i) {
+		bits_per_comp[i] = ctx->bits_per_pixel / 3;
+		if ((ctx->bits_per_pixel % 3) > i) {
 			bits_per_comp[i] += 1;
 		}
 		div[i] = 255.0 / (double)((1 << bits_per_comp[i]) - 1);
 	}
 
-	if (*tbyte == -1) {
-		*tbyte = 0;
+	if (ctx->tbyte == -1) {
+		ctx->tbyte = 0;
 	}
 	int buffer_idx = 0;
 	int image_idx=0;
-	for (image_idx=0; (image_idx < blocks) && (*tbyte != -1); image_idx++) {
-		switch (bits_per_pixel) {
+	int blocks = ctx->width * ctx->height;
+	for (image_idx=0; (image_idx < blocks) && (ctx->tbyte != -1); image_idx++) {
+		switch (ctx->bits_per_pixel) {
 			int value;
 			case 1:
-				value = next_bit(buffer, size, tbyte, tbit, &buffer_idx) * 0xFF;
-				memset(image + (image_idx * 3), value, 3);
+				value = next_bit(ctx->buffer, ctx->bytes_available, &ctx->tbyte, &ctx->tbit,
+					&buffer_idx) * 0xFF;
+				memset(ctx->image + (image_idx * 3), value, 3);
 				break;
 			default:
 				for (int c=0; c<3; c++) {
 					value = 0;
 					for (int b=0; b<bits_per_comp[c]; b++) {
 						value <<= 1;
-						value |= next_bit(buffer, size, tbyte, tbit, &buffer_idx);
+						value |= next_bit(ctx->buffer, ctx->bytes_available, &ctx->tbyte,
+							&ctx->tbit, &buffer_idx);
 					}
 					value = (uint8_t)round(div[c] * (double)value);
-					image[image_idx * 3 + c] = value;
+					ctx->image[image_idx * 3 + c] = value;
 				}
 				break;
 		}
 	}
-	memset(image + image_idx * 3, 0, (blocks - image_idx) * 3);
+	memset(ctx->image + image_idx * 3, 0, (blocks - image_idx) * 3);
+	scale_up(ctx->image, ctx->image_scaled, ctx->width, ctx->height, ctx->scale);
 
 	return buffer_idx;
 }
 
-void fill_image_from_file(uint8_t *image, int blocks, int bits_per_pixel,
-	FILE *file, uint8_t **buffer, size_t *buffer_size, size_t *bytes_available,
-	int *tbyte, int *tbit)
-{
-	size_t required_buffer_size = (blocks * bits_per_pixel) / 8 + 1;
-	if (*buffer == NULL) {
-		*buffer = malloc(required_buffer_size);
-	}
-	else if (*buffer_size < required_buffer_size) { 
-		*buffer = realloc(*buffer, required_buffer_size);
-	}
-	*buffer_size = required_buffer_size;
-	*bytes_available += fread(*buffer + *bytes_available, 1,
-		*buffer_size - *bytes_available, file);
-	int next_idx = fill_image_from_buffer(image, blocks, bits_per_pixel,
-		*buffer, *bytes_available, tbyte, tbit);
-	memmove(*buffer, *buffer + next_idx, *bytes_available - next_idx);
-	*bytes_available -= next_idx;
+void fill_image_from_file(FILE *file, struct fill_context *ctx) {
+	ctx->bytes_available += fread(ctx->buffer + ctx->bytes_available, 1,
+		ctx->buffer_size - ctx->bytes_available, file);
+	int next_idx = fill_image(ctx);
+	memmove(ctx->buffer, ctx->buffer + next_idx, ctx->bytes_available - next_idx);
+	ctx->bytes_available -= next_idx;
 }
 
 void write_next_bit(FILE *file, int value, int *tbyte, int *tbit) {
@@ -326,23 +361,17 @@ int b2v_encode(const char *input, const char *output, int real_width,
 	const int blocks = width * height;
 	const int pixels = real_width * real_height;
 	
-	uint8_t *image_data = malloc(blocks * 3);
-	uint8_t *image_scaled = malloc(pixels * 3);
-	uint8_t *fill_buffer = NULL;
-	size_t fill_buffer_size = 0;
-	size_t fill_buffer_available = 0;
-	int tbit=0, tbyte=0;
+	struct fill_context fill_context;
+	fill_context_init(width, height, bits_per_pixel, block_size, &fill_context);
 
 	while ( !feof(input_file) ) {
-		fill_image_from_file(image_data, blocks, bits_per_pixel, input_file,
-			&fill_buffer, &fill_buffer_size, &fill_buffer_available, &tbyte, &tbit);
-		scale_up(image_data, image_scaled, width, height, current_block_size);
-		fwrite(image_scaled, pixels * 3, 1, ffmpeg_stdin);
+		fill_image_from_file(input_file, &fill_context);
+		fwrite(fill_context.image_scaled, pixels * 3, 1, ffmpeg_stdin);
 	}
 
 	fclose(input_file);
 	fclose(ffmpeg_stdin);
-	free(image_data);
+	fill_context_destroy(&fill_context);
 
 	int exit_code;
 	subprocess_ret = subprocess_join(&ffmpeg_process, &exit_code);

@@ -79,7 +79,7 @@ int next_bit(uint8_t *buffer, int size, int *tbyte, int *tbit, int *idx) {
 	return ret;
 }
 
-struct fill_context {
+struct b2v_context {
 	uint8_t *image;
 	uint8_t *buffer;
 	uint8_t *image_scaled;
@@ -93,7 +93,7 @@ struct fill_context {
 	size_t bytes_available;
 };
 
-void fill_context_realloc(struct fill_context *ctx) {
+void b2v_context_realloc(struct b2v_context *ctx) {
 	int blocks = ctx->width * ctx->height;
 
 	if (ctx->buffer != NULL) free(ctx->buffer);
@@ -107,7 +107,7 @@ void fill_context_realloc(struct fill_context *ctx) {
 	ctx->image_scaled = malloc(blocks * ctx->scale * ctx->scale * 3);
 }
 
-void fill_context_init(struct fill_context *ctx, int width, int height,
+void b2v_context_init(struct b2v_context *ctx, int width, int height,
 	int bits_per_pixel, int scale)
 {
 	memset(ctx, 0, sizeof(*ctx));
@@ -115,16 +115,16 @@ void fill_context_init(struct fill_context *ctx, int width, int height,
 	ctx->height = height;
 	ctx->scale = scale;
 	ctx->bits_per_pixel = bits_per_pixel;
-	fill_context_realloc(ctx);
+	b2v_context_realloc(ctx);
 }
 
-void fill_context_destroy(struct fill_context *ctx) {
+void b2v_context_destroy(struct b2v_context *ctx) {
 	free(ctx->buffer);
 	free(ctx->image);
 	free(ctx->image_scaled);
 }
 
-int fill_image(struct fill_context *ctx) {
+int b2v_fill_image(struct b2v_context *ctx) {
 	int bits_per_comp[3];
 	double div[3];
 	for (int i=0; i<3; i++) {
@@ -169,10 +169,10 @@ int fill_image(struct fill_context *ctx) {
 	return buffer_idx;
 }
 
-void fill_image_from_file(struct fill_context *ctx, FILE *file) {
+void b2v_fill_image_from_file(struct b2v_context *ctx, FILE *file) {
 	ctx->bytes_available += fread(ctx->buffer + ctx->bytes_available, 1,
 		ctx->buffer_size - ctx->bytes_available, file);
-	int next_idx = fill_image(ctx);
+	int next_idx = b2v_fill_image(ctx);
 	memmove(ctx->buffer, ctx->buffer + next_idx, ctx->bytes_available - next_idx);
 	ctx->bytes_available -= next_idx;
 }
@@ -361,17 +361,17 @@ int b2v_encode(const char *input, const char *output, int real_width,
 	const int blocks = width * height;
 	const int pixels = real_width * real_height;
 	
-	struct fill_context fill_context;
-	fill_context_init(&fill_context, width, height, bits_per_pixel, block_size);
+	struct b2v_context ctx;
+	b2v_context_init(&ctx, width, height, bits_per_pixel, block_size);
 
 	while ( !feof(input_file) ) {
-		fill_image_from_file(&fill_context, input_file);
-		fwrite(fill_context.image_scaled, pixels * 3, 1, ffmpeg_stdin);
+		b2v_fill_image_from_file(&ctx, input_file);
+		fwrite(ctx.image_scaled, pixels * 3, 1, ffmpeg_stdin);
 	}
 
 	fclose(input_file);
 	fclose(ffmpeg_stdin);
-	fill_context_destroy(&fill_context);
+	b2v_context_destroy(&ctx);
 
 	int exit_code;
 	subprocess_ret = subprocess_join(&ffmpeg_process, &exit_code);

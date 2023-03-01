@@ -107,8 +107,8 @@ void fill_context_realloc(struct fill_context *ctx) {
 	ctx->image_scaled = malloc(blocks * ctx->scale * ctx->scale * 3);
 }
 
-void fill_context_init(int width, int height, int bits_per_pixel, int scale,
-	struct fill_context *ctx)
+void fill_context_init(struct fill_context *ctx, int width, int height,
+	int bits_per_pixel, int scale)
 {
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->width = width;
@@ -169,7 +169,7 @@ int fill_image(struct fill_context *ctx) {
 	return buffer_idx;
 }
 
-void fill_image_from_file(FILE *file, struct fill_context *ctx) {
+void fill_image_from_file(struct fill_context *ctx, FILE *file) {
 	ctx->bytes_available += fread(ctx->buffer + ctx->bytes_available, 1,
 		ctx->buffer_size - ctx->bytes_available, file);
 	int next_idx = fill_image(ctx);
@@ -362,10 +362,10 @@ int b2v_encode(const char *input, const char *output, int real_width,
 	const int pixels = real_width * real_height;
 	
 	struct fill_context fill_context;
-	fill_context_init(width, height, bits_per_pixel, block_size, &fill_context);
+	fill_context_init(&fill_context, width, height, bits_per_pixel, block_size);
 
 	while ( !feof(input_file) ) {
-		fill_image_from_file(input_file, &fill_context);
+		fill_image_from_file(&fill_context, input_file);
 		fwrite(fill_context.image_scaled, pixels * 3, 1, ffmpeg_stdin);
 	}
 

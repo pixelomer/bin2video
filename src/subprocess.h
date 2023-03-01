@@ -1073,12 +1073,13 @@ unsigned subprocess_read_stdout(struct subprocess_s *const process,
 
   return SUBPROCESS_CAST(unsigned, bytes_read);
 #else
-  const int fd = fileno(process->stdout_file);
-  const ssize_t bytes_read = read(fd, buffer, size);
+  //const int fd = fileno(process->stdout_file);
+  //const ssize_t bytes_read = read(fd, buffer, size);
+  const size_t bytes_read = fread(buffer, 1, size, process->stdout_file);
 
-  if (bytes_read < 0) {
-    return 0;
-  }
+  //if (bytes_read < 0) {
+  //  return 0;
+  //}
 
   return SUBPROCESS_CAST(unsigned, bytes_read);
 #endif
@@ -1118,12 +1119,13 @@ unsigned subprocess_read_stderr(struct subprocess_s *const process,
 
   return SUBPROCESS_CAST(unsigned, bytes_read);
 #else
-  const int fd = fileno(process->stderr_file);
-  const ssize_t bytes_read = read(fd, buffer, size);
+  //const int fd = fileno(process->stderr_file);
+  //const ssize_t bytes_read = read(fd, buffer, size);
+  const size_t bytes_read = fread(buffer, 1, size, process->stderr_file);
 
-  if (bytes_read < 0) {
-    return 0;
-  }
+  //if (bytes_read < 0) {
+  //  return 0;
+  //}
 
   return SUBPROCESS_CAST(unsigned, bytes_read);
 #endif

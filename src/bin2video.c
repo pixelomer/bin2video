@@ -63,6 +63,12 @@ void scale_down(uint8_t *in, uint8_t *out, int out_width, int out_height, int sc
 	}
 }
 
+// array[bits_per_pixel][comp]
+
+static bool did_init_before = false;
+static int bits_per_comp[25][3];
+static double comp_div[25][3];
+
 int get_bit(uint8_t *buffer, int size, int *tbyte, int *tbit, int *idx) {
 	if (*tbit == 0) {
 		if (*idx == size) {
@@ -119,6 +125,20 @@ void b2v_context_realloc(struct b2v_context *ctx) {
 void b2v_context_init(struct b2v_context *ctx, int width, int height,
 	int bits_per_pixel, int scale)
 {
+	if (!did_init_before) {
+		did_init_before = true;
+		for (int bits_per_pixel=0; bits_per_pixel<=24; bits_per_pixel++) {
+			for (int i=0; i<3; i++) {
+				bits_per_comp[bits_per_pixel][i] = bits_per_pixel / 3;
+				if ((bits_per_pixel % 3) > i) {
+					bits_per_comp[bits_per_pixel][i] += 1;
+				}
+				comp_div[bits_per_pixel][i] = 255.0 /
+					(double)((1 << bits_per_comp[bits_per_pixel][i]) - 1);
+			}
+		}
+	}
+
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->width = width;
 	ctx->height = height;
@@ -134,16 +154,6 @@ void b2v_context_destroy(struct b2v_context *ctx) {
 }
 
 int b2v_fill_image(struct b2v_context *ctx) {
-	int bits_per_comp[3];
-	double div[3];
-	for (int i=0; i<3; i++) {
-		bits_per_comp[i] = ctx->bits_per_pixel / 3;
-		if ((ctx->bits_per_pixel % 3) > i) {
-			bits_per_comp[i] += 1;
-		}
-		div[i] = 255.0 / (double)((1 << bits_per_comp[i]) - 1);
-	}
-
 	if (ctx->tbyte == -1) {
 		ctx->tbyte = 0;
 	}
@@ -161,12 +171,12 @@ int b2v_fill_image(struct b2v_context *ctx) {
 			default:
 				for (int c=0; c<3; c++) {
 					value = 0;
-					for (int b=0; b<bits_per_comp[c]; b++) {
+					for (int b=0; b<bits_per_comp[ctx->bits_per_pixel][c]; b++) {
 						value <<= 1;
 						value |= get_bit(ctx->buffer, ctx->bytes_available, &ctx->tbyte,
 							&ctx->tbit, &buffer_idx);
 					}
-					value = (uint8_t)round(div[c] * (double)value);
+					value = (uint8_t)round(comp_div[ctx->bits_per_pixel][c] * (double)value);
 					ctx->image[image_idx * 3 + c] = value;
 				}
 				break;
@@ -187,16 +197,6 @@ void b2v_fill_image_from_file(struct b2v_context *ctx, FILE *file) {
 }
 
 int b2v_decode_image(struct b2v_context *ctx) {
-	int bits_per_comp[3];
-	double div[3];
-	for (int i=0; i<3; i++) {
-		bits_per_comp[i] = ctx->bits_per_pixel / 3;
-		if ((ctx->bits_per_pixel % 3) > i) {
-			bits_per_comp[i] += 1;
-		}
-		div[i] = 255.0 / (double)((1 << bits_per_comp[i]) - 1);
-	}
-
 	scale_down(ctx->image_scaled, ctx->image, ctx->width, ctx->height,
 		ctx->scale);
 	int buffer_idx = 0;
@@ -213,8 +213,8 @@ int b2v_decode_image(struct b2v_context *ctx) {
 			default:
 				for (int j=0; j<3; j++) {
 					double color = (double)ctx->image[i * 3 + j];
-					value = (int)round(color / div[j]);
-					for (int b=bits_per_comp[j]-1; b>=0; b--) {
+					value = (int)round(color / comp_div[ctx->bits_per_pixel][j]);
+					for (int b=bits_per_comp[ctx->bits_per_pixel][j]-1; b>=0; b--) {
 						put_bit(ctx->buffer, ((uint8_t)value >> b) & 1, &ctx->tbyte,
 							&ctx->tbit, &buffer_idx);
 					}
@@ -315,16 +315,6 @@ int b2v_decode(const char *input, const char *output, int bits_per_pixel) {
 	const int width = INTERNAL_WIDTH;
 	const int height = INTERNAL_HEIGHT;
 	const int pixels = width * height;
-
-	int bits_per_comp[3];
-	double div[3];
-	for (int i=0; i<3; i++) {
-		bits_per_comp[i] = bits_per_pixel / 3;
-		if ((bits_per_pixel % 3) > i) {
-			bits_per_comp[i] += 1;
-		}
-		div[i] = 255.0 / (double)((1 << bits_per_comp[i]) - 1);
-	}
 
 	struct b2v_context ctx;
 	b2v_context_init(&ctx, width, height, bits_per_pixel, scale);

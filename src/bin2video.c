@@ -10,7 +10,7 @@
 #include "bin2video.h"
 #include "subprocess.h"
 
-#define METADATA_VERSION 0
+#define METADATA_VERSION 1
 
 #define LOAD_UINT32(u8_pt) \
 	(uint32_t)( \

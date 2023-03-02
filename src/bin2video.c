@@ -12,13 +12,24 @@
 
 #define METADATA_VERSION 0
 
+#define LOAD_UINT32(u8_pt) \
+	(uint32_t)(((u8_pt)[0] << 24) | ((u8_pt)[1] << 16) | ((u8_pt)[2] << 8) | \
+	(u8_pt)[3])
+#define STORE_UINT32(u8_pt, u32) { \
+	(u8_pt)[0] = u32 >> 24; \
+	(u8_pt)[1] = (u32 >> 16) & 0xFF; \
+	(u8_pt)[2] = (u32 >> 8) & 0xFF; \
+	(u8_pt)[3] = u32 & 0xFF; \
+}
+
 // array[bits_per_pixel][comp]
 
 static bool did_init_before = false;
 static int bits_per_comp[25][3];
 static double comp_div[25][3];
 
-int get_bit(uint8_t *buffer, int size, int *tbyte, int *tbit, int *idx) {
+int get_bit(uint8_t *buffer, int size, int *tbyte, int *tbit, int *idx)
+{
 	if (*tbit == 0) {
 		if (*idx == size) {
 			*tbyte = -1;
@@ -106,36 +117,54 @@ void b2v_context_destroy(struct b2v_context *ctx) {
 	free(ctx->image_scaled);
 }
 
-int b2v_fill_image(struct b2v_context *ctx) {
+int _b2v_fill_image_next(struct b2v_context *ctx, int bits_per_pixel,
+	int start, int end, uint8_t *buffer, int *tbit, int *tbyte, int *buffer_idx)
+{
 	if (ctx->tbyte == -1) {
 		ctx->tbyte = 0;
 	}
-	int buffer_idx = 0;
-	int image_idx=0;
-	int blocks = ctx->width * ctx->height;
-	for (image_idx=0; (image_idx < blocks) && (ctx->tbyte != -1); image_idx++) {
-		switch (ctx->bits_per_pixel) {
-			int value;
+	int i;
+	for (i=start; (i < end) && (ctx->tbyte != -1); i++) {
+		int value;
+		switch (bits_per_pixel) {
 			case 1:
-				value = get_bit(ctx->buffer, ctx->bytes_available, &ctx->tbyte, &ctx->tbit,
-					&buffer_idx) * 0xFF;
-				memset(ctx->image + (image_idx * 3), value, 3);
+				value = get_bit(buffer, ctx->bytes_available, tbyte, tbit,
+					buffer_idx) * 0xFF;
+				memset(ctx->image + (i * 3), value, 3);
 				break;
 			default:
 				for (int c=0; c<3; c++) {
 					value = 0;
 					for (int b=0; b<bits_per_comp[ctx->bits_per_pixel][c]; b++) {
 						value <<= 1;
-						value |= get_bit(ctx->buffer, ctx->bytes_available, &ctx->tbyte,
-							&ctx->tbit, &buffer_idx);
+						value |= get_bit(buffer, ctx->bytes_available, tbyte,
+							tbit, buffer_idx);
 					}
 					value = (uint8_t)round(comp_div[ctx->bits_per_pixel][c] * (double)value);
-					ctx->image[image_idx * 3 + c] = value;
+					ctx->image[i * 3 + c] = value;
 				}
 				break;
 		}
 	}
+	return i;
+}
+
+int b2v_fill_image(struct b2v_context *ctx) {
+	int buffer_idx = 0;
+	int blocks = ctx->width * ctx->height;
+
+	uint8_t metadata[4];
+	const int metadata_end = sizeof(metadata) * 8;
+	
+	int image_idx = _b2v_fill_image_next(ctx, ctx->bits_per_pixel, metadata_end,
+		blocks, ctx->buffer, &ctx->tbit, &ctx->tbyte, &buffer_idx);
 	memset(ctx->image + image_idx * 3, 0, (blocks - image_idx) * 3);
+
+	STORE_UINT32(metadata, image_idx);
+	int ret = buffer_idx, tbyte = 0, tbit = 0;
+	buffer_idx = 0;
+	image_idx = _b2v_fill_image_next(ctx, 1, 0, metadata_end, metadata, &tbit, &tbyte,
+		&buffer_idx);
 
 	// Scale image up
 	for (int y=0; y<ctx->height; y++) {
@@ -155,7 +184,7 @@ int b2v_fill_image(struct b2v_context *ctx) {
 		}
 	}
 
-	return buffer_idx;
+	return ret;
 }
 
 void b2v_fill_image_from_file(struct b2v_context *ctx, FILE *file) {
@@ -164,6 +193,32 @@ void b2v_fill_image_from_file(struct b2v_context *ctx, FILE *file) {
 	int next_idx = b2v_fill_image(ctx);
 	memmove(ctx->buffer, ctx->buffer + next_idx, ctx->bytes_available - next_idx);
 	ctx->bytes_available -= next_idx;
+}
+
+void _b2v_decode_image_next(struct b2v_context *ctx, int bits_per_pixel,
+	int start, int end, uint8_t *buffer, int *tbit, int *tbyte, int *buffer_idx)
+{
+	for (int i=start; i<end; i++) {
+		switch (bits_per_pixel) {
+			int value;
+			case 1:
+				value = ((int)ctx->image[i * 3] + (int)ctx->image[i * 3 + 1]
+					+ (int)ctx->image[i * 3 + 2]) / 3;
+				value = (value > 127) ? 1 : 0;
+				put_bit(buffer, value, tbyte, tbit, buffer_idx);
+				break;
+			default:
+				for (int j=0; j<3; j++) {
+					double color = (double)ctx->image[i * 3 + j];
+					value = (int)round(color / comp_div[bits_per_pixel][j]);
+					for (int b=bits_per_comp[bits_per_pixel][j]-1; b>=0; b--) {
+						put_bit(buffer, ((uint8_t)value >> b) & 1, tbyte, tbit,
+							buffer_idx);
+					}
+				}
+				break;
+		}
+	}
 }
 
 int b2v_decode_image(struct b2v_context *ctx) {
@@ -185,29 +240,21 @@ int b2v_decode_image(struct b2v_context *ctx) {
 		}
 	}
 
-	int buffer_idx = 0;
-	int blocks = ctx->width * ctx->height;
-	for (int i=0; i<blocks; i++) {
-		switch (ctx->bits_per_pixel) {
-			int value;
-			case 1:
-				value = ((int)ctx->image[i * 3] + (int)ctx->image[i * 3 + 1]
-					+ (int)ctx->image[i * 3 + 2]) / 3;
-				value = (value > 127) ? 1 : 0;
-				put_bit(ctx->buffer, value, &ctx->tbyte, &ctx->tbit, &buffer_idx);
-				break;
-			default:
-				for (int j=0; j<3; j++) {
-					double color = (double)ctx->image[i * 3 + j];
-					value = (int)round(color / comp_div[ctx->bits_per_pixel][j]);
-					for (int b=bits_per_comp[ctx->bits_per_pixel][j]-1; b>=0; b--) {
-						put_bit(ctx->buffer, ((uint8_t)value >> b) & 1, &ctx->tbyte,
-							&ctx->tbit, &buffer_idx);
-					}
-				}
-				break;
-		}
+	int tbit=0, tbyte=0, buffer_idx=0;
+	uint8_t metadata[4];
+	const int metadata_end = sizeof(metadata) * 8;
+	_b2v_decode_image_next(ctx, 1, 0, metadata_end, metadata, &tbit, &tbyte,
+		&buffer_idx);
+	uint32_t block_count = LOAD_UINT32(metadata);
+	
+	buffer_idx = 0;
+	int max_blocks = ctx->width * ctx->height;
+	int blocks = block_count + metadata_end;
+	if (blocks > max_blocks) {
+		blocks = max_blocks;
 	}
+	_b2v_decode_image_next(ctx, ctx->bits_per_pixel, metadata_end, blocks,
+		ctx->buffer, &ctx->tbit, &ctx->tbyte, &buffer_idx);
 
 	return buffer_idx;
 }

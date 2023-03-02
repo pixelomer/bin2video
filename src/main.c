@@ -47,7 +47,7 @@ void usage(char *argv0) {
 		DEFAULT_BLOCK_SIZE, DEFAULT_INITIAL_BLOCK_SIZE);
 }
 
-#define USAGE(message) { usage(argv[0]); return EXIT_FAILURE; }
+#define USAGE() { usage(argv[0]); return EXIT_FAILURE; }
 #define DIE(message) { fprintf(stderr, "%s: %s\n", argv[0], message); \
 	return EXIT_FAILURE; }
 #define NUM_ARG(target) { \

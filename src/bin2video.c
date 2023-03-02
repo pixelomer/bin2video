@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <string.h>
 #include <math.h>
+#include <stdint.h>
 #include <stdbool.h>
 #include "bin2video.h"
 #include "subprocess.h"

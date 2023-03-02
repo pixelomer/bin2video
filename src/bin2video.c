@@ -19,50 +19,6 @@
 //FIXME: not affected by other definitions
 #define VIDEO_RESOLUTION "1280x720"
 
-// scale_up(image_in, image_out, 100, 100, 5)
-//   --> takes a 100x100 image, returns a 500x500 image
-// image_in must be (height * width * 3) bytes
-// image_out must be (height * scale * width * scale * 3) bytes
-void scale_up(uint8_t *in, uint8_t *out, int in_width, int in_height, int scale) {
-	for (int y=0; y<in_height; y++) {
-		uint8_t *scaled_line = &out[in_width * scale * 3 * y * scale];
-		uint8_t *scaled_line_pt = scaled_line;
-		for (int x=0; x<in_width; x++) {
-			uint8_t *source_pixel = &in[(y * in_width + x) * 3];
-			for (int i=0; i<scale; i++) {
-				memcpy(scaled_line_pt, source_pixel, 3);
-				scaled_line_pt += 3;
-			}
-		}
-		int diff = scaled_line_pt - scaled_line;
-		for (int i=1; i<scale; i++) {
-			memcpy(scaled_line + diff * i, scaled_line, diff);
-		}
-	}
-}
-
-// scale_down(image_in, image_out, 100, 100, 5)
-//   --> takes a 500x500 image, returns a 100x100 image
-// image_in must be (height * scale * width * scale * 3) bytes
-// image_out must be (height * width * 3) bytes
-void scale_down(uint8_t *in, uint8_t *out, int out_width, int out_height, int scale) {
-	int in_width = out_width * scale;
-	int in_height = out_height * scale;
-	for (int y=0; y<out_height; y++) {
-		for (int x=0; x<out_width; x++) {
-			for (int i=0; i<3; i++) {
-				uint32_t sum = 0;
-				for (int sy = y * scale; sy < (y + 1) * scale; sy++) {
-					for (int sx = x * scale; sx < (x + 1) * scale; sx++) {
-						sum += in[(sy * in_width + sx) * 3 + i];
-					}
-				}
-				out[(y * out_width + x) * 3 + i] = (uint8_t)(sum / (scale * scale));
-			}
-		}
-	}
-}
-
 // array[bits_per_pixel][comp]
 
 static bool did_init_before = false;
@@ -183,7 +139,24 @@ int b2v_fill_image(struct b2v_context *ctx) {
 		}
 	}
 	memset(ctx->image + image_idx * 3, 0, (blocks - image_idx) * 3);
-	scale_up(ctx->image, ctx->image_scaled, ctx->width, ctx->height, ctx->scale);
+
+	// Scale image up
+	for (int y=0; y<ctx->height; y++) {
+		uint8_t *scaled_line = &ctx->image_scaled[ctx->width * ctx->scale * 3 * y
+			* ctx->scale];
+		uint8_t *scaled_line_pt = scaled_line;
+		for (int x=0; x<ctx->width; x++) {
+			uint8_t *source_pixel = &ctx->image[(y * ctx->width + x) * 3];
+			for (int i=0; i<ctx->scale; i++) {
+				memcpy(scaled_line_pt, source_pixel, 3);
+				scaled_line_pt += 3;
+			}
+		}
+		int diff = scaled_line_pt - scaled_line;
+		for (int i=1; i<ctx->scale; i++) {
+			memcpy(scaled_line + diff * i, scaled_line, diff);
+		}
+	}
 
 	return buffer_idx;
 }
@@ -197,8 +170,24 @@ void b2v_fill_image_from_file(struct b2v_context *ctx, FILE *file) {
 }
 
 int b2v_decode_image(struct b2v_context *ctx) {
-	scale_down(ctx->image_scaled, ctx->image, ctx->width, ctx->height,
-		ctx->scale);
+	// Scale image down
+	int scaled_width = ctx->width * ctx->scale;
+	int scaled_height = ctx->height * ctx->scale;
+	for (int y=0; y<ctx->height; y++) {
+		for (int x=0; x<ctx->width; x++) {
+			for (int i=0; i<3; i++) {
+				uint32_t sum = 0;
+				for (int sy = y * ctx->scale; sy < (y + 1) * ctx->scale; sy++) {
+					for (int sx = x * ctx->scale; sx < (x + 1) * ctx->scale; sx++) {
+						sum += ctx->image_scaled[(sy * scaled_width + sx) * 3 + i];
+					}
+				}
+				ctx->image[(y * ctx->width + x) * 3 + i] = (uint8_t)(sum /
+					(ctx->scale * ctx->scale));
+			}
+		}
+	}
+
 	int buffer_idx = 0;
 	int blocks = ctx->width * ctx->height;
 	for (int i=0; i<blocks; i++) {

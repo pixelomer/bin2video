@@ -253,7 +253,7 @@ int b2v_decode_image(struct b2v_context *ctx) {
 	
 	buffer_idx = 0;
 	int max_blocks = ctx->width * ctx->height;
-	int blocks = block_count + metadata_end;
+	int blocks = block_count;
 	if (blocks > max_blocks) {
 		blocks = max_blocks;
 	}

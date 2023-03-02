@@ -437,8 +437,6 @@ int b2v_encode(const char *input, const char *output, int real_width,
 		return EXIT_FAILURE;
 	}
 
-	FILE *ffmpeg_stdin = ffmpeg_process.stdin_file;
-
 	const int pixels = real_width * real_height;
 	
 	struct b2v_context ctx;
@@ -452,7 +450,7 @@ int b2v_encode(const char *input, const char *output, int real_width,
 	ctx.buffer[3] = ctx.buffer[0] + ctx.buffer[1] + ctx.buffer[2];
 	ctx.bytes_available = 4;
 	b2v_fill_image(&ctx);
-	fwrite(ctx.image_scaled, pixels * 3, 1, ffmpeg_stdin);
+	fwrite(ctx.image_scaled, pixels * 3, 1, ffmpeg_process.stdin_file);
 
 	// Store file data
 	ctx.bits_per_pixel = bits_per_pixel;
@@ -462,11 +460,10 @@ int b2v_encode(const char *input, const char *output, int real_width,
 	b2v_context_realloc(&ctx);
 	while ( !feof(input_file) ) {
 		b2v_fill_image_from_file(&ctx, input_file);
-		fwrite(ctx.image_scaled, pixels * 3, 1, ffmpeg_stdin);
+		fwrite(ctx.image_scaled, pixels * 3, 1, ffmpeg_process.stdin_file);
 	}
 
 	fclose(input_file);
-	fclose(ffmpeg_stdin);
 	b2v_context_destroy(&ctx);
 
 	int exit_code;

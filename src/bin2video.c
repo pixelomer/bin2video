@@ -10,14 +10,7 @@
 #include "bin2video.h"
 #include "subprocess.h"
 
-#define INTERNAL_WIDTH 320
-#define INTERNAL_HEIGHT 180
-#define VIDEO_SCALE 4
-#define VIDEO_WIDTH (VIDEO_SCALE * INTERNAL_WIDTH)
-#define VIDEO_HEIGHT (VIDEO_SCALE * INTERNAL_HEIGHT)
-
-//FIXME: not affected by other definitions
-#define VIDEO_RESOLUTION "1280x720"
+#define METADATA_VERSION 0
 
 // array[bits_per_pixel][comp]
 
@@ -76,6 +69,10 @@ void b2v_context_realloc(struct b2v_context *ctx) {
 
 	if (ctx->image_scaled != NULL) free(ctx->image_scaled);
 	ctx->image_scaled = malloc(blocks * ctx->scale * ctx->scale * 3);
+
+	ctx->tbit = 0;
+	ctx->tbyte = 0;
+	ctx->bytes_available = 0;
 }
 
 void b2v_context_init(struct b2v_context *ctx, int width, int height,
@@ -236,7 +233,8 @@ int spawn(const char **argv, struct subprocess_s *proc, bool enable_async) {
 
 int video_resolution(const char *file, int *width_pt, int *height_pt) {
 	const char *argv[] = { "ffprobe", "-v", "error", "-select_streams", "v:0",
-		"-show_entries", "stream=width,height", "-of", "csv=s=x:p=0", file, NULL };
+		"-show_entries", "stream=width,height", "-of", "csv=s=x:p=0", "--",
+		file, NULL };
 	
 	struct subprocess_s ffmpeg_process;
 	int subprocess_ret = spawn(argv, &ffmpeg_process, false);
@@ -275,11 +273,17 @@ int video_resolution(const char *file, int *width_pt, int *height_pt) {
 	}
 }
 
-int b2v_decode(const char *input, const char *output, int bits_per_pixel) {
-	FILE *output_file = fopen(output, "wb");
-	if (output_file == NULL) {
-		perror("couldn't open output for writing");
-		return EXIT_FAILURE;
+int b2v_decode(const char *input, const char *output, int initial_block_size) {
+	FILE *output_file;
+	if (output == NULL) {
+		output_file = stdout;
+	}
+	else {
+		output_file = fopen(output, "wb");
+		if (output_file == NULL) {
+			perror("couldn't open output for writing");
+			return EXIT_FAILURE;
+		}
 	}
 
 	int real_width, real_height;
@@ -288,8 +292,8 @@ int b2v_decode(const char *input, const char *output, int bits_per_pixel) {
 		return EXIT_FAILURE;
 	}
 	
-	const char *argv[] = { "ffmpeg", "-i", (char *)input, "-f", "rawvideo", "-pix_fmt",
-		"rgb24", "-", "-v", "quiet", "-hide_banner", NULL };
+	const char *argv[] = { "ffmpeg", "-i", input, "-f", "rawvideo", "-pix_fmt",
+		"rgb24", "-v", "quiet", "-hide_banner", "-", NULL };
 	struct subprocess_s ffmpeg_process;
 	int subprocess_ret = spawn(argv, &ffmpeg_process, true);
 	if (subprocess_ret != 0) {
@@ -300,30 +304,49 @@ int b2v_decode(const char *input, const char *output, int bits_per_pixel) {
 
 	int bit=0, byte=0;
 
-	const int scale = VIDEO_SCALE;
-	const int width = INTERNAL_WIDTH;
-	const int height = INTERNAL_HEIGHT;
-	const int pixels = width * height;
-
 	struct b2v_context ctx;
-	b2v_context_init(&ctx, width, height, bits_per_pixel, scale);
+	b2v_context_init(&ctx, real_width / initial_block_size,
+		real_height / initial_block_size, 1, initial_block_size);
+	int blocks = ctx.width * ctx.height;
 
+	int frame = 0;
 	int result = -1;
 	while (result == -1) {
 		unsigned int read_ret = subprocess_read_stdout(&ffmpeg_process,
-			(char *)ctx.image_scaled, pixels * scale * scale * 3);
+			(char *)ctx.image_scaled, blocks * ctx.scale * ctx.scale * 3);
 		if (read_ret == 0) {
 			result = EXIT_SUCCESS;
 			break;
 		}
 		int ret = b2v_decode_image(&ctx);
-		fwrite(ctx.buffer, 1, ret, output_file);
+		if (frame++ == 0) {
+			// Metadata
+			uint8_t metadata_version = ctx.buffer[0];
+			if (metadata_version != METADATA_VERSION) {
+				fprintf(stderr, "warning: unsupported metadata version (expected %d, "
+					"got %d)\n", METADATA_VERSION, metadata_version);
+			}
+			ctx.scale = (int)ctx.buffer[1];
+			ctx.bits_per_pixel = (int)ctx.buffer[2];
+			uint8_t checksum = ctx.buffer[0] + ctx.buffer[1] + ctx.buffer[2];
+			if (checksum != ctx.buffer[3]) {
+				fprintf(stderr, "warning: corrupted metadata checksum\n");
+			}
+			ctx.width = real_width / ctx.scale;
+			ctx.height = real_height / ctx.scale;
+			b2v_context_realloc(&ctx);
+			blocks = ctx.width * ctx.height;
+		}
+		else {
+			// File data
+			fwrite(ctx.buffer, 1, ret, output_file);
+		}
 	}
 
 	b2v_context_destroy(&ctx);
 	fclose(output_file);
 	
-	subprocess_join(&ffmpeg_process, NULL);
+	subprocess_terminate(&ffmpeg_process);
 	subprocess_destroy(&ffmpeg_process);
 	if (result == 0) {
 		return ffmpeg_process.return_status;
@@ -336,17 +359,26 @@ int b2v_decode(const char *input, const char *output, int bits_per_pixel) {
 int b2v_encode(const char *input, const char *output, int real_width,
 	int real_height, int initial_block_size, int block_size, int bits_per_pixel)
 {
-	FILE *input_file = fopen(input, "rb");
-	if (input_file == NULL) {
-		perror("couldn't open input for reading");
-		return EXIT_FAILURE;
+	FILE *input_file;
+	if (input == NULL) {
+		input_file = stdin;
+	}
+	else {
+		input_file = fopen(input, "rb");
+		if (input_file == NULL) {
+			perror("couldn't open input for reading");
+			return EXIT_FAILURE;
+		}
 	}
 
 	struct subprocess_s ffmpeg_process;
-	const char *argv[] = { "ffmpeg", "-framerate", "30", "-s", VIDEO_RESOLUTION, "-f",
-		"rawvideo", "-pix_fmt", "rgb24", "-i", "-", "-c:v",
-		"libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", (char *)output,
-		"-hide_banner", "-y", "-v", "quiet", NULL };
+	char video_resolution[33];
+	snprintf(video_resolution, 33, "%dx%d", real_width, real_height);
+	video_resolution[sizeof(video_resolution)-1] = 0;
+	const char *argv[] = { "ffmpeg", "-framerate", "30", "-s", video_resolution,
+		"-f", "rawvideo", "-pix_fmt", "rgb24", "-i", "-", "-c:v",
+		"libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+		"-hide_banner", "-y", "-v", "quiet", "--", output, NULL };
 	int subprocess_ret = spawn(argv, &ffmpeg_process, false);
 	if ( subprocess_ret == -1 ) {
 		fprintf(stderr, "couldn't spawn ffmpeg\n");
@@ -356,15 +388,27 @@ int b2v_encode(const char *input, const char *output, int real_width,
 
 	FILE *ffmpeg_stdin = ffmpeg_process.stdin_file;
 
-	int current_block_size = block_size;
-	int width = real_width / current_block_size;
-	int height = real_height / current_block_size;
-	const int blocks = width * height;
 	const int pixels = real_width * real_height;
 	
 	struct b2v_context ctx;
-	b2v_context_init(&ctx, width, height, bits_per_pixel, block_size);
+	b2v_context_init(&ctx, real_width / initial_block_size,
+		real_height / initial_block_size, 1, initial_block_size);
 
+	// Store metadata
+	ctx.buffer[0] = METADATA_VERSION;
+	ctx.buffer[1] = (uint8_t)block_size;
+	ctx.buffer[2] = (uint8_t)bits_per_pixel;
+	ctx.buffer[3] = ctx.buffer[0] + ctx.buffer[1] + ctx.buffer[2];
+	ctx.bytes_available = 4;
+	b2v_fill_image(&ctx);
+	fwrite(ctx.image_scaled, pixels * 3, 1, ffmpeg_stdin);
+
+	// Store file data
+	ctx.bits_per_pixel = bits_per_pixel;
+	ctx.scale = block_size;
+	ctx.width = real_width / block_size;
+	ctx.height = real_height / block_size;
+	b2v_context_realloc(&ctx);
 	while ( !feof(input_file) ) {
 		b2v_fill_image_from_file(&ctx, input_file);
 		fwrite(ctx.image_scaled, pixels * 3, 1, ffmpeg_stdin);

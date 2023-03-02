@@ -3,7 +3,6 @@
 
 int b2v_encode(const char *input, const char *output, int real_width,
 	int real_height, int initial_block_size, int block_size, int bits_per_pixel);
-int b2v_decode(const char *input, const char *output,
-	int bits_per_pixel);
+int b2v_decode(const char *input, const char *output, int initial_block_size);
 
 #endif

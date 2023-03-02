@@ -192,12 +192,14 @@ int b2v_fill_image(struct b2v_context *ctx) {
 	return ret;
 }
 
-void b2v_fill_image_from_file(struct b2v_context *ctx, FILE *file) {
-	ctx->bytes_available += fread(ctx->buffer + ctx->bytes_available, 1,
+size_t b2v_fill_image_from_file(struct b2v_context *ctx, FILE *file) {
+	size_t bytes_read = fread(ctx->buffer + ctx->bytes_available, 1,
 		ctx->buffer_size - ctx->bytes_available, file);
+	ctx->bytes_available += bytes_read;
 	int next_idx = b2v_fill_image(ctx);
 	memmove(ctx->buffer, ctx->buffer + next_idx, ctx->bytes_available - next_idx);
 	ctx->bytes_available -= next_idx;
+	return bytes_read;
 }
 
 void _b2v_decode_image_next(struct b2v_context *ctx, int bits_per_pixel,
@@ -362,6 +364,7 @@ int b2v_decode(const char *input, const char *output, int initial_block_size) {
 	int blocks = ctx.width * ctx.height;
 
 	int frame = 0;
+	size_t bytes_written = 0;
 	int result = -1;
 	while (result == -1) {
 		unsigned int read_ret = subprocess_read_stdout(&ffmpeg_process,
@@ -391,9 +394,13 @@ int b2v_decode(const char *input, const char *output, int initial_block_size) {
 		}
 		else {
 			// File data
+			bytes_written += ret;
+			fprintf(stderr, "\r%.1lf KiB written, %d frames",
+				((double)bytes_written / 1024), frame);
 			fwrite(ctx.buffer, 1, ret, output_file);
 		}
 	}
+	fprintf(stderr, "\n");
 
 	b2v_context_destroy(&ctx);
 	fclose(output_file);
@@ -459,10 +466,17 @@ int b2v_encode(const char *input, const char *output, int real_width,
 	ctx.width = real_width / block_size;
 	ctx.height = real_height / block_size;
 	b2v_context_realloc(&ctx);
+
+	size_t bytes_read = 0;
+	int frame = 0;
+
 	while ( !feof(input_file) ) {
-		b2v_fill_image_from_file(&ctx, input_file);
+		bytes_read += b2v_fill_image_from_file(&ctx, input_file);
+		fprintf(stderr, "\r%.1lf KiB written, %d frames",
+			((double)bytes_read / 1024), ++frame);
 		fwrite(ctx.image_scaled, pixels * 3, 1, ffmpeg_process.stdin_file);
 	}
+	fprintf(stderr, "\n");
 
 	fclose(input_file);
 	b2v_context_destroy(&ctx);

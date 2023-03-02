@@ -13,8 +13,12 @@
 #define METADATA_VERSION 0
 
 #define LOAD_UINT32(u8_pt) \
-	(uint32_t)(((u8_pt)[0] << 24) | ((u8_pt)[1] << 16) | ((u8_pt)[2] << 8) | \
-	(u8_pt)[3])
+	(uint32_t)( \
+		((u8_pt)[0] << 24) | \
+		(((u8_pt)[1] << 16) & 0xFF0000) | \
+		(((u8_pt)[2] << 8) & 0xFF00) | \
+		((u8_pt)[3] & 0xFF) \
+	)
 #define STORE_UINT32(u8_pt, u32) { \
 	(u8_pt)[0] = u32 >> 24; \
 	(u8_pt)[1] = (u32 >> 16) & 0xFF; \

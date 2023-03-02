@@ -342,14 +342,6 @@ int b2v_encode(const char *input, const char *output, int real_width,
 		return EXIT_FAILURE;
 	}
 
-	int input_fd = ftell(input_file);
-	struct stat input_stat; // .st_size is size in bytes
-	if (fstat(input_fd, &input_stat) != 0) {
-		perror("couldn't stat() input file");
-		fclose(input_file);
-		return EXIT_FAILURE;
-	}
-
 	struct subprocess_s ffmpeg_process;
 	const char *argv[] = { "ffmpeg", "-framerate", "30", "-s", VIDEO_RESOLUTION, "-f",
 		"rawvideo", "-pix_fmt", "rgb24", "-i", "-", "-c:v",

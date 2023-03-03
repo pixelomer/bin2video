@@ -19,7 +19,6 @@ void usage(char *argv0) {
 		"  %s [options] -d video.mp4 data.bin\n"
 		"\n"
 		"OPTIONS:\n"
-		"  -L          Shows license.\n"
 		"  -e          Encode mode. Takes an input binary file and produces\n"
 		"              a video file.\n"
 		"  -d          Decode mode. Takes an input video file and produces\n"

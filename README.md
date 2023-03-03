@@ -8,9 +8,13 @@ A C program for encoding anything as a video file. Inspired by [Infinite-Storage
 cc src/*.c -lm -O3 -o bin2video
 ```
 
+## Dependencies
+
+You must have `ffmpeg` and `ffprobe` in your PATH to use this program.
+
 ## Usage
 
-Run the program with no arguments for more details.
+Run the program with no arguments for more usage details.
 
 ```bash
 # Encode archive.zip as a video

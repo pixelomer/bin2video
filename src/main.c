@@ -9,8 +9,8 @@
 #define DEFAULT_WIDTH 1280
 #define DEFAULT_HEIGHT 720
 #define DEFAULT_BITS 1
-#define DEFAULT_INITIAL_BLOCK_SIZE 4
-#define DEFAULT_BLOCK_SIZE 4
+#define DEFAULT_INITIAL_BLOCK_SIZE 10
+#define DEFAULT_BLOCK_SIZE 10
 
 void usage(char *argv0) {
 	fprintf(stderr,
@@ -26,6 +26,7 @@ void usage(char *argv0) {
 		"  -i          Input file. Defaults to stdin.\n"
 		"  -o          Output file. Defaults to stdout.\n"
 		"  -t          Allows writing output to a tty.\n"
+		"  -f <rate>   Framerate. Defaults to %d.\n"
 		"  -b <bits>   Bits per pixel. Defaults to %d (black and white).\n"
 		"  -w <width>  Sets video width. Defaults to %d.\n"
 		"  -h <height> Sets video height. Defaults to %d.\n"
@@ -42,7 +43,7 @@ void usage(char *argv0) {
 		"  Increasing the number of bits per pixel will increase the risk of\n"
 		"  corruption. Increasing the block size will decrease the risk of\n"
 		"  corruption.\n"
-		, argv0, argv0, DEFAULT_BITS, DEFAULT_WIDTH, DEFAULT_HEIGHT,
+		, argv0, argv0, DEFAULT_FRAMERATE, DEFAULT_BITS, DEFAULT_WIDTH, DEFAULT_HEIGHT,
 		DEFAULT_BLOCK_SIZE, DEFAULT_INITIAL_BLOCK_SIZE);
 }
 
@@ -65,10 +66,11 @@ int main(int argc, char **argv) {
 	int width = DEFAULT_WIDTH;
 	int height = DEFAULT_HEIGHT;
 	bool write_to_tty = false;
+	int framerate = DEFAULT_FRAMERATE;
 
 	int opt;
 	bool opts[0x100] = {};
-	while ((opt = getopt(argc, argv, "b:w:h:s:S:i:o:de")) != -1) {
+	while ((opt = getopt(argc, argv, "f:b:w:h:s:S:i:o:de")) != -1) {
 		if (opts[opt & 0xFF]) USAGE();
 		opts[opt & 0xFF] = true;
 		switch (opt) {
@@ -77,6 +79,7 @@ int main(int argc, char **argv) {
 			case 'h': NUM_ARG(height); break;
 			case 'S': NUM_ARG(initial_block_size); break;
 			case 's': NUM_ARG(block_size); break;
+			case 'f': NUM_ARG(framerate); break;
 			case 'i': input_file = optarg; break;
 			case 'o': output_file = optarg; break;
 			case 't': write_to_tty = true; break;
@@ -97,6 +100,9 @@ int main(int argc, char **argv) {
 	}
 	if ((bits_per_pixel < 0) || (bits_per_pixel > 24)) {
 		DIE("bits-per-pixel must be in the range [0..24]")
+	}
+	if (framerate <= 0) {
+		DIE("framerate must be greater than 0");
 	}
 	if ((output_file == NULL) && isatty(STDIN_FILENO) && !write_to_tty) {
 		DIE("refusing to write binary data to tty");
@@ -123,7 +129,7 @@ int main(int argc, char **argv) {
 				DIE("output file cannot be stdout in encode mode");
 			}
 			return b2v_encode(input_file, output_file, width, height,
-				initial_block_size, block_size, bits_per_pixel);
+				initial_block_size, block_size, bits_per_pixel, framerate);
 	}
 }
 #undef USAGE

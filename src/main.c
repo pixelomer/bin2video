@@ -81,7 +81,7 @@ int main(int argc, char **argv) {
 			case 'i': input_file = optarg; break;
 			case 'o': output_file = optarg; break;
 			case 't': write_to_tty = true; break;
-			case 'd': 
+			case 'd':
 			case 'e':
 				if (operation_mode != 0) USAGE();
 				operation_mode = opt;

@@ -122,31 +122,30 @@ void b2v_context_destroy(struct b2v_context *ctx) {
 	free(ctx->image_scaled);
 }
 
-int _b2v_fill_image_next(struct b2v_context *ctx, int bits_per_pixel,
-	int start, int end, uint8_t *buffer, int *tbit, int *tbyte, int *buffer_idx)
+int _b2v_fill_image_next(uint8_t *image, int bits_per_pixel,
+	int start, int end, uint8_t *buffer, size_t bytes, int *tbit, int *tbyte,
+	int *buffer_idx)
 {
-	if (ctx->tbyte == -1) {
-		ctx->tbyte = 0;
+	if (*tbyte == -1) {
+		*tbyte = 0;
 	}
 	int i;
-	for (i=start; (i < end) && (ctx->tbyte != -1); i++) {
+	for (i=start; (i < end) && (*tbyte != -1); i++) {
 		int value;
 		switch (bits_per_pixel) {
 			case 1:
-				value = get_bit(buffer, ctx->bytes_available, tbyte, tbit,
-					buffer_idx) * 0xFF;
-				memset(ctx->image + (i * 3), value, 3);
+				value = get_bit(buffer, bytes, tbyte, tbit, buffer_idx) * 0xFF;
+				memset(image + (i * 3), value, 3);
 				break;
 			default:
 				for (int c=0; c<3; c++) {
 					value = 0;
-					for (int b=0; b<bits_per_comp[ctx->bits_per_pixel][c]; b++) {
+					for (int b=0; b<bits_per_comp[bits_per_pixel][c]; b++) {
 						value <<= 1;
-						value |= get_bit(buffer, ctx->bytes_available, tbyte,
-							tbit, buffer_idx);
+						value |= get_bit(buffer, bytes, tbyte, tbit, buffer_idx);
 					}
-					value = (uint8_t)round(comp_div[ctx->bits_per_pixel][c] * (double)value);
-					ctx->image[i * 3 + c] = value;
+					value = (uint8_t)round(comp_div[bits_per_pixel][c] * (double)value);
+					image[i * 3 + c] = value;
 				}
 				break;
 		}
@@ -161,15 +160,16 @@ int b2v_fill_image(struct b2v_context *ctx) {
 	uint8_t metadata[4];
 	const int metadata_end = sizeof(metadata) * 8;
 	
-	int image_idx = _b2v_fill_image_next(ctx, ctx->bits_per_pixel, metadata_end,
-		blocks, ctx->buffer, &ctx->tbit, &ctx->tbyte, &buffer_idx);
+	int image_idx = _b2v_fill_image_next(ctx->image, ctx->bits_per_pixel,
+		metadata_end, blocks, ctx->buffer, ctx->bytes_available, &ctx->tbit,
+		&ctx->tbyte, &buffer_idx);
 	memset(ctx->image + image_idx * 3, 0, (blocks - image_idx) * 3);
 
 	STORE_UINT32(metadata, image_idx);
 	int ret = buffer_idx, tbyte = 0, tbit = 0;
 	buffer_idx = 0;
-	image_idx = _b2v_fill_image_next(ctx, 1, 0, metadata_end, metadata, &tbit, &tbyte,
-		&buffer_idx);
+	image_idx = _b2v_fill_image_next(ctx->image, 1, 0, metadata_end, metadata,
+		sizeof(metadata), &tbit, &tbyte, &buffer_idx);
 
 	// Scale image up
 	for (int y=0; y<ctx->height; y++) {
@@ -202,21 +202,21 @@ size_t b2v_fill_image_from_file(struct b2v_context *ctx, FILE *file) {
 	return bytes_read;
 }
 
-void _b2v_decode_image_next(struct b2v_context *ctx, int bits_per_pixel,
+void _b2v_decode_image_next(uint8_t *image, int bits_per_pixel,
 	int start, int end, uint8_t *buffer, int *tbit, int *tbyte, int *buffer_idx)
 {
 	for (int i=start; i<end; i++) {
 		switch (bits_per_pixel) {
 			int value;
 			case 1:
-				value = ((int)ctx->image[i * 3] + (int)ctx->image[i * 3 + 1]
-					+ (int)ctx->image[i * 3 + 2]) / 3;
+				value = ((int)image[i * 3] + (int)image[i * 3 + 1]
+					+ (int)image[i * 3 + 2]) / 3;
 				value = (value > 127) ? 1 : 0;
 				put_bit(buffer, value, tbyte, tbit, buffer_idx);
 				break;
 			default:
 				for (int j=0; j<3; j++) {
-					double color = (double)ctx->image[i * 3 + j];
+					double color = (double)image[i * 3 + j];
 					value = (int)round(color / comp_div[bits_per_pixel][j]);
 					for (int b=bits_per_comp[bits_per_pixel][j]-1; b>=0; b--) {
 						put_bit(buffer, ((uint8_t)value >> b) & 1, tbyte, tbit,
@@ -250,7 +250,7 @@ int b2v_decode_image(struct b2v_context *ctx) {
 	int tbit=0, tbyte=0, buffer_idx=0;
 	uint8_t metadata[4];
 	const int metadata_end = sizeof(metadata) * 8;
-	_b2v_decode_image_next(ctx, 1, 0, metadata_end, metadata, &tbit, &tbyte,
+	_b2v_decode_image_next(ctx->image, 1, 0, metadata_end, metadata, &tbit, &tbyte,
 		&buffer_idx);
 	uint32_t block_count = LOAD_UINT32(metadata);
 	
@@ -260,7 +260,7 @@ int b2v_decode_image(struct b2v_context *ctx) {
 	if (blocks > max_blocks) {
 		blocks = max_blocks;
 	}
-	_b2v_decode_image_next(ctx, ctx->bits_per_pixel, metadata_end, blocks,
+	_b2v_decode_image_next(ctx->image, ctx->bits_per_pixel, metadata_end, blocks,
 		ctx->buffer, &ctx->tbit, &ctx->tbyte, &buffer_idx);
 
 	return buffer_idx;

@@ -416,7 +416,8 @@ int b2v_decode(const char *input, const char *output, int initial_block_size) {
 }
 
 int b2v_encode(const char *input, const char *output, int real_width,
-	int real_height, int initial_block_size, int block_size, int bits_per_pixel)
+	int real_height, int initial_block_size, int block_size, int bits_per_pixel,
+	int framerate)
 {
 	FILE *input_file;
 	if (input == NULL) {
@@ -431,18 +432,27 @@ int b2v_encode(const char *input, const char *output, int real_width,
 	}
 
 	struct subprocess_s ffmpeg_process;
-	char video_resolution[33];
-	snprintf(video_resolution, 33, "%dx%d", real_width, real_height);
-	video_resolution[sizeof(video_resolution)-1] = 0;
-	const char *argv[] = { "ffmpeg", "-framerate", "30", "-s", video_resolution,
-		"-f", "rawvideo", "-pix_fmt", "rgb24", "-i", "-", "-c:v",
-		"libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
-		"-hide_banner", "-y", "-v", "quiet", "--", output, NULL };
-	int subprocess_ret = spawn(argv, &ffmpeg_process, false);
-	if ( subprocess_ret == -1 ) {
-		fprintf(stderr, "couldn't spawn ffmpeg\n");
-		fclose(input_file);
-		return EXIT_FAILURE;
+	int subprocess_ret;
+	{
+		char framerate_str[16];
+		snprintf(framerate_str, sizeof(framerate_str), "%d", framerate);
+		framerate_str[sizeof(framerate_str)-1] = 0;
+
+		char video_resolution[33];
+		snprintf(video_resolution, sizeof(video_resolution), "%dx%d", real_width,
+			real_height);
+		video_resolution[sizeof(video_resolution)-1] = 0;
+
+		const char *argv[] = { "ffmpeg", "-framerate", framerate_str, "-s",
+			video_resolution, "-f", "rawvideo", "-pix_fmt", "rgb24", "-i", "-",
+			"-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+			"-hide_banner", "-y", "-v", "quiet", "--", output, NULL };
+		subprocess_ret = spawn(argv, &ffmpeg_process, false);
+		if ( subprocess_ret == -1 ) {
+			fprintf(stderr, "couldn't spawn ffmpeg\n");
+			fclose(input_file);
+			return EXIT_FAILURE;
+		}
 	}
 
 	const int pixels = real_width * real_height;

@@ -10,6 +10,7 @@
 #define DEFAULT_HEIGHT 720
 #define DEFAULT_BITS 1
 #define DEFAULT_INITIAL_BLOCK_SIZE 10
+#define DEFAULT_FRAMERATE 10
 #define DEFAULT_BLOCK_SIZE 10
 
 void usage(char *argv0) {

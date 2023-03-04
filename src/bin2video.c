@@ -408,7 +408,7 @@ int b2v_decode(const char *input, const char *output, int initial_block_size) {
 	subprocess_terminate(&ffmpeg_process);
 	subprocess_destroy(&ffmpeg_process);
 	if (result == 0) {
-		return ffmpeg_process.return_status;
+		return EXIT_SUCCESS;
 	}
 	else {
 		return result;

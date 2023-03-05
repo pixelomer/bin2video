@@ -71,7 +71,7 @@ int main(int argc, char **argv) {
 
 	int opt;
 	bool opts[0x100] = {};
-	while ((opt = getopt(argc, argv, "f:b:w:h:s:S:i:o:de")) != -1) {
+	while ((opt = getopt(argc, argv, "f:b:w:h:s:S:i:o:det")) != -1) {
 		if (opts[opt & 0xFF]) USAGE();
 		opts[opt & 0xFF] = true;
 		switch (opt) {
@@ -105,9 +105,6 @@ int main(int argc, char **argv) {
 	if (framerate <= 0) {
 		DIE("framerate must be greater than 0");
 	}
-	if ((output_file == NULL) && isatty(STDIN_FILENO) && !write_to_tty) {
-		DIE("refusing to write binary data to tty");
-	}
 	if ((width % initial_block_size != 0) || (height % initial_block_size != 0) ||
 		(width % block_size != 0) || (height % block_size != 0))
 	{
@@ -123,6 +120,9 @@ int main(int argc, char **argv) {
 		case 'd':
 			if (input_file == NULL) {
 				DIE("input file cannot be stdin in decode mode");
+			}
+			if ((output_file == NULL) && isatty(STDOUT_FILENO) && !write_to_tty) {
+				DIE("refusing to write binary data to tty");
 			}
 			return b2v_decode(input_file, output_file, initial_block_size);
 		case 'e':

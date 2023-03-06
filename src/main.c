@@ -3,6 +3,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <stdbool.h>
+#include <string.h>
 #include <errno.h>
 #include "bin2video.h"
 
@@ -12,6 +13,7 @@
 #define DEFAULT_INITIAL_BLOCK_SIZE 10
 #define DEFAULT_FRAMERATE 10
 #define DEFAULT_BLOCK_SIZE 10
+#define DEFAULT_FFMPEG "-c:v libx264 -pix_fmt yuv420p"
 
 void usage(char *argv0) {
 	fprintf(stderr,
@@ -39,13 +41,10 @@ void usage(char *argv0) {
 		"              a good reason to do so. If you specify this flag\n"
 		"              while encoding, you will also need to do it while\n"
 		"              decoding.\n"
-		"\n"
-		"NOTES:\n"
-		"  Increasing the number of bits per pixel will increase the risk of\n"
-		"  corruption. Increasing the block size will decrease the risk of\n"
-		"  corruption.\n"
+		"  -F <args>   Space separated options for encoding with FFmpeg.\n"
+		"              Defaults to \"%s\".\n"
 		, argv0, argv0, DEFAULT_FRAMERATE, DEFAULT_BITS, DEFAULT_WIDTH, DEFAULT_HEIGHT,
-		DEFAULT_BLOCK_SIZE, DEFAULT_INITIAL_BLOCK_SIZE);
+		DEFAULT_BLOCK_SIZE, DEFAULT_INITIAL_BLOCK_SIZE, DEFAULT_FFMPEG);
 }
 
 #define USAGE() { usage(argv[0]); return EXIT_FAILURE; }
@@ -68,10 +67,11 @@ int main(int argc, char **argv) {
 	int height = DEFAULT_HEIGHT;
 	bool write_to_tty = false;
 	int framerate = DEFAULT_FRAMERATE;
+	const char *encode_flags = DEFAULT_FFMPEG;
 
 	int opt;
 	bool opts[0x100] = {};
-	while ((opt = getopt(argc, argv, "f:b:w:h:s:S:i:o:det")) != -1) {
+	while ((opt = getopt(argc, argv, "F:f:b:w:h:s:S:i:o:det")) != -1) {
 		if (opts[opt & 0xFF]) USAGE();
 		opts[opt & 0xFF] = true;
 		switch (opt) {
@@ -84,6 +84,7 @@ int main(int argc, char **argv) {
 			case 'i': input_file = optarg; break;
 			case 'o': output_file = optarg; break;
 			case 't': write_to_tty = true; break;
+			case 'F': encode_flags = optarg; break;
 			case 'd':
 			case 'e':
 				if (operation_mode != 0) USAGE();
@@ -93,6 +94,28 @@ int main(int argc, char **argv) {
 				USAGE();
 		}
 	}
+
+	const char **encode_argv;
+	char *encode_flags_copy = strdup(encode_flags);
+	{
+		int encode_argc = 0;
+		char *token = strtok(encode_flags_copy, " ");
+		while (token != NULL) {
+			encode_argc++;
+			token = strtok(NULL, " ");
+		}
+
+		strcpy(encode_flags_copy, encode_flags);
+		encode_argv = malloc((encode_argc + 1) * sizeof(*encode_argv));
+		int i = 0;
+		token = strtok(encode_flags_copy, " ");
+		while (token != NULL) {
+			encode_argv[i++] = token;
+			token = strtok(NULL, " ");
+		}
+		encode_argv[i] = NULL;
+	}
+
 	if (optind != argc) {
 		USAGE();
 	}
@@ -116,6 +139,7 @@ int main(int argc, char **argv) {
 	if (width * height < 100) {
 		DIE("(width * height) must be at least 100");
 	}
+	int ret;
 	switch (operation_mode) {
 		case 'd':
 			if (input_file == NULL) {
@@ -124,13 +148,18 @@ int main(int argc, char **argv) {
 			if ((output_file == NULL) && isatty(STDOUT_FILENO) && !write_to_tty) {
 				DIE("refusing to write binary data to tty");
 			}
-			return b2v_decode(input_file, output_file, initial_block_size);
-		case 'e':
+			ret = b2v_decode(input_file, output_file, initial_block_size);
+		case 'e': {
 			if (output_file == NULL) {
 				DIE("output file cannot be stdout in encode mode");
 			}
-			return b2v_encode(input_file, output_file, width, height,
-				initial_block_size, block_size, bits_per_pixel, framerate);
+			ret = b2v_encode(input_file, output_file, width, height,
+				initial_block_size, block_size, bits_per_pixel, framerate,
+				encode_argv);
+		}
 	}
+	free(encode_argv);
+	free(encode_flags_copy);
+	return ret;
 }
 #undef USAGE

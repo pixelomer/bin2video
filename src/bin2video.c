@@ -417,8 +417,12 @@ int b2v_decode(const char *input, const char *output, int initial_block_size) {
 
 int b2v_encode(const char *input, const char *output, int real_width,
 	int real_height, int initial_block_size, int block_size, int bits_per_pixel,
-	int framerate)
+	int framerate, const char **encode_argv)
 {
+	int encode_argc = 0;
+	for (const char **pt = encode_argv; *pt != NULL; pt++) {
+		encode_argc++;
+	}
 	FILE *input_file;
 	if (input == NULL) {
 		input_file = stdin;
@@ -443,11 +447,20 @@ int b2v_encode(const char *input, const char *output, int real_width,
 			real_height);
 		video_resolution[sizeof(video_resolution)-1] = 0;
 
-		const char *argv[] = { "ffmpeg", "-framerate", framerate_str, "-s",
+		const char *argv_start[] = { "ffmpeg", "-framerate", framerate_str, "-s",
 			video_resolution, "-f", "rawvideo", "-pix_fmt", "rgb24", "-i", "-",
-			"-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
-			"-hide_banner", "-y", "-v", "quiet", "--", output, NULL };
+			"-movflags", "+faststart", "-hide_banner", "-y", "-v", "quiet" };
+		const char *argv_end[] = { "--", output, NULL };
+		const char **argv = malloc( ( (sizeof(argv_start) / sizeof(*argv_start)) +
+			(sizeof(argv_end) / sizeof(*argv_end)) + encode_argc ) * sizeof(*argv) );
+		memcpy(argv, argv_start, sizeof(argv_start));
+		memcpy(argv + (sizeof(argv_start) / sizeof(*argv_start)), encode_argv,
+			encode_argc * sizeof(*argv) );
+		memcpy(argv + (sizeof(argv_start) / sizeof(*argv_start)) + encode_argc,
+			argv_end, sizeof(argv_end));
 		subprocess_ret = spawn(argv, &ffmpeg_process, false);
+		free(argv);
+
 		if ( subprocess_ret == -1 ) {
 			fprintf(stderr, "couldn't spawn ffmpeg\n");
 			fclose(input_file);

@@ -28,4 +28,9 @@ Run the program with no arguments for more usage details.
 
 # Extract archive.zip from the video
 ./bin2video -d -i archive.zip.mp4 -o archive.zip
+
+# Decode video encoded with Infinite-Storage-Glitch
+# (Example video taken from Infinite-Storage-Glitch README.md)
+yt-dlp -f 247 -o isg-video.webm 'https://www.youtube.com/watch?v=8I4fd_Sap-g'
+./bin2video -I -d -i isg-video.webm -o archive.zip
 ```

@@ -50,8 +50,14 @@ int get_bit(uint8_t *buffer, int size, int *tbyte, int *tbit, int *idx)
 	return ret;
 }
 
-void put_bit(uint8_t *buffer, int bit, int *tbyte, int *tbit, int *idx) {
-	*tbyte |= bit << (*tbit)++;
+void put_bit(uint8_t *buffer, int bit, int *tbyte, int *tbit, int *idx, bool rev) {
+	if (rev) {
+		*tbyte |= bit << (7 - *tbit);
+	}
+	else {
+		*tbyte |= bit << *tbit;
+	}
+	(*tbit)++;
 	if (*tbit == 8) {
 		buffer[(*idx)++] = *tbyte;
 		*tbyte = 0;
@@ -203,7 +209,8 @@ size_t b2v_fill_image_from_file(struct b2v_context *ctx, FILE *file) {
 }
 
 void _b2v_decode_image_next(uint8_t *image, int bits_per_pixel,
-	int start, int end, uint8_t *buffer, int *tbit, int *tbyte, int *buffer_idx)
+	int start, int end, uint8_t *buffer, int *tbit, int *tbyte, int *buffer_idx,
+	bool isg_mode)
 {
 	for (int i=start; i<end; i++) {
 		switch (bits_per_pixel) {
@@ -212,7 +219,7 @@ void _b2v_decode_image_next(uint8_t *image, int bits_per_pixel,
 				value = ((int)image[i * 3] + (int)image[i * 3 + 1]
 					+ (int)image[i * 3 + 2]) / 3;
 				value = (value > 127) ? 1 : 0;
-				put_bit(buffer, value, tbyte, tbit, buffer_idx);
+				put_bit(buffer, value, tbyte, tbit, buffer_idx, isg_mode);
 				break;
 			default:
 				for (int j=0; j<3; j++) {
@@ -220,7 +227,7 @@ void _b2v_decode_image_next(uint8_t *image, int bits_per_pixel,
 					value = (int)round(color / comp_div[bits_per_pixel][j]);
 					for (int b=bits_per_comp[bits_per_pixel][j]-1; b>=0; b--) {
 						put_bit(buffer, ((uint8_t)value >> b) & 1, tbyte, tbit,
-							buffer_idx);
+							buffer_idx, isg_mode);
 					}
 				}
 				break;
@@ -228,7 +235,7 @@ void _b2v_decode_image_next(uint8_t *image, int bits_per_pixel,
 	}
 }
 
-int b2v_decode_image(struct b2v_context *ctx) {
+int b2v_decode_image(struct b2v_context *ctx, bool isg_mode) {
 	// Scale image down
 	int scaled_width = ctx->width * ctx->scale;
 	int scaled_height = ctx->height * ctx->scale;
@@ -248,11 +255,19 @@ int b2v_decode_image(struct b2v_context *ctx) {
 	}
 
 	int tbit=0, tbyte=0, buffer_idx=0;
-	uint8_t metadata[4];
-	const int metadata_end = sizeof(metadata) * 8;
-	_b2v_decode_image_next(ctx->image, 1, 0, metadata_end, metadata, &tbit, &tbyte,
-		&buffer_idx);
-	uint32_t block_count = LOAD_UINT32(metadata);
+	uint32_t block_count;
+	int metadata_end;
+	if (isg_mode) {
+		block_count = ctx->width * ctx->height;
+		metadata_end = 0;
+	}
+	else {
+		uint8_t metadata[4];
+		metadata_end = sizeof(metadata) * 8;
+		_b2v_decode_image_next(ctx->image, 1, 0, metadata_end, metadata, &tbit, &tbyte,
+			&buffer_idx, false);
+		block_count = LOAD_UINT32(metadata);
+	}
 	
 	buffer_idx = 0;
 	int max_blocks = ctx->width * ctx->height;
@@ -261,7 +276,7 @@ int b2v_decode_image(struct b2v_context *ctx) {
 		blocks = max_blocks;
 	}
 	_b2v_decode_image_next(ctx->image, ctx->bits_per_pixel, metadata_end, blocks,
-		ctx->buffer, &ctx->tbit, &ctx->tbyte, &buffer_idx);
+		ctx->buffer, &ctx->tbit, &ctx->tbyte, &buffer_idx, isg_mode);
 
 	return buffer_idx;
 }
@@ -327,7 +342,9 @@ int video_resolution(const char *file, int *width_pt, int *height_pt) {
 	}
 }
 
-int b2v_decode(const char *input, const char *output, int initial_block_size) {
+int b2v_decode(const char *input, const char *output, int initial_block_size,
+	bool isg_mode)
+{
 	FILE *output_file;
 	if (output == NULL) {
 		output_file = stdout;
@@ -373,19 +390,34 @@ int b2v_decode(const char *input, const char *output, int initial_block_size) {
 			result = EXIT_SUCCESS;
 			break;
 		}
-		int ret = b2v_decode_image(&ctx);
+		int ret = b2v_decode_image(&ctx, isg_mode);
 		if (frame++ == 0) {
 			// Metadata
-			uint8_t metadata_version = ctx.buffer[0];
-			if (metadata_version != METADATA_VERSION) {
-				fprintf(stderr, "warning: unsupported metadata version (expected %d, "
-					"got %d)\n", METADATA_VERSION, metadata_version);
+			if (isg_mode) {
+				// Infinite-Storage-Glitch metadata
+				uint32_t color_mode = LOAD_UINT32(ctx.buffer);
+				uint32_t instruction_size = LOAD_UINT32(ctx.buffer + 12);
+				ctx.scale = (int)instruction_size;
+				if (color_mode == 0) {
+					ctx.bits_per_pixel = 1;
+				}
+				else {
+					ctx.bits_per_pixel = 24;
+				}
 			}
-			ctx.scale = (int)ctx.buffer[1];
-			ctx.bits_per_pixel = (int)ctx.buffer[2];
-			uint8_t checksum = ctx.buffer[0] + ctx.buffer[1] + ctx.buffer[2];
-			if (checksum != ctx.buffer[3]) {
-				fprintf(stderr, "warning: corrupted metadata checksum\n");
+			else {
+				// bin2video metadata
+				uint8_t metadata_version = ctx.buffer[0];
+				if (metadata_version != METADATA_VERSION) {
+					fprintf(stderr, "warning: unsupported metadata version (expected %d, "
+						"got %d)\n", METADATA_VERSION, metadata_version);
+				}
+				ctx.scale = (int)ctx.buffer[1];
+				ctx.bits_per_pixel = (int)ctx.buffer[2];
+				uint8_t checksum = ctx.buffer[0] + ctx.buffer[1] + ctx.buffer[2];
+				if (checksum != ctx.buffer[3]) {
+					fprintf(stderr, "warning: corrupted metadata checksum\n");
+				}
 			}
 			ctx.width = real_width / ctx.scale;
 			ctx.height = real_height / ctx.scale;

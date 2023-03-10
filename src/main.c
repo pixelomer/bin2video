@@ -34,13 +34,15 @@ void usage(char *argv0) {
 		"  -w <width>  Sets video width. Defaults to %d.\n"
 		"  -h <height> Sets video height. Defaults to %d.\n"
 		"  -s <size>   Sets the size of each block. Defaults to %d.\n"
+		"  -I          Infinite-Storage-Glitch compatibility mode. Can only\n"
+		"              be used in decode mode.\n"
 		"\n"
 		"ADVANCED OPTIONS:\n"
 		"  -S <size>   Sets the size of each block for the initial frame.\n"
 		"              Defaults to %d. Do not change this unless you have\n"
 		"              a good reason to do so. If you specify this flag\n"
 		"              while encoding, you will also need to do it while\n"
-		"              decoding.\n"
+		"              decoding. Cannot be used with -I.\n"
 		"  -F <args>   Space separated options for encoding with FFmpeg.\n"
 		"              Defaults to \"%s\".\n"
 		, argv0, argv0, DEFAULT_FRAMERATE, DEFAULT_BITS, DEFAULT_WIDTH, DEFAULT_HEIGHT,
@@ -68,20 +70,28 @@ int main(int argc, char **argv) {
 	bool write_to_tty = false;
 	int framerate = DEFAULT_FRAMERATE;
 	const char *encode_flags = DEFAULT_FFMPEG;
+	bool isg_mode = true;
 
 	int opt;
 	bool opts[0x100] = {};
-	while ((opt = getopt(argc, argv, "F:f:b:w:h:s:S:i:o:det")) != -1) {
+	while ((opt = getopt(argc, argv, "F:f:b:w:h:s:S:i:o:detI")) != -1) {
 		if (opts[opt & 0xFF]) USAGE();
 		opts[opt & 0xFF] = true;
 		switch (opt) {
 			case 'b': NUM_ARG(bits_per_pixel); break;
 			case 'w': NUM_ARG(width); break;
 			case 'h': NUM_ARG(height); break;
-			case 'S': NUM_ARG(initial_block_size); break;
+			case 'S':
+				NUM_ARG(initial_block_size);
+				opts['I'] = true;
+				break;
 			case 's': NUM_ARG(block_size); break;
 			case 'f': NUM_ARG(framerate); break;
 			case 'i': input_file = optarg; break;
+			case 'I':
+				isg_mode = true;
+				opts['S'] = true;
+				break;
 			case 'o': output_file = optarg; break;
 			case 't': write_to_tty = true; break;
 			case 'F': encode_flags = optarg; break;
@@ -139,6 +149,9 @@ int main(int argc, char **argv) {
 	if (width * height < 100) {
 		DIE("(width * height) must be at least 100");
 	}
+	if (isg_mode) {
+		initial_block_size = 5;
+	}
 	int ret;
 	switch (operation_mode) {
 		case 'd':
@@ -148,14 +161,19 @@ int main(int argc, char **argv) {
 			if ((output_file == NULL) && isatty(STDOUT_FILENO) && !write_to_tty) {
 				DIE("refusing to write binary data to tty");
 			}
-			ret = b2v_decode(input_file, output_file, initial_block_size);
+			ret = b2v_decode(input_file, output_file, initial_block_size, isg_mode);
+			break;
 		case 'e': {
 			if (output_file == NULL) {
 				DIE("output file cannot be stdout in encode mode");
 			}
+			if (isg_mode) {
+				DIE("cannot encode files in Infinite-Storage-Glitch mode");
+			}
 			ret = b2v_encode(input_file, output_file, width, height,
 				initial_block_size, block_size, bits_per_pixel, framerate,
 				encode_argv);
+			break;
 		}
 	}
 	free(encode_argv);

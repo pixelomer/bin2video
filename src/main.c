@@ -70,7 +70,7 @@ int main(int argc, char **argv) {
 	bool write_to_tty = false;
 	int framerate = DEFAULT_FRAMERATE;
 	const char *encode_flags = DEFAULT_FFMPEG;
-	bool isg_mode = true;
+	bool isg_mode = false;
 
 	int opt;
 	bool opts[0x100] = {};

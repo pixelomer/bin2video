@@ -14,7 +14,37 @@ You must have `ffmpeg` and `ffprobe` in your PATH to use this program.
 
 ## Usage
 
-Run the program with no arguments for more usage details.
+```
+USAGE:
+  ./bin2video [options] -e data.bin video.mp4
+  ./bin2video [options] -d video.mp4 data.bin
+
+OPTIONS:
+  -e          Encode mode. Takes an input binary file and produces
+              a video file.
+  -d          Decode mode. Takes an input video file and produces
+              the original binary file.
+  -i          Input file. Defaults to stdin.
+  -o          Output file. Defaults to stdout.
+  -t          Allows writing output to a tty.
+  -f <rate>   Framerate. Defaults to 10.
+  -b <bits>   Bits per pixel. Defaults to 1 (black and white).
+  -w <width>  Sets video width. Defaults to 1280.
+  -h <height> Sets video height. Defaults to 720.
+  -s <size>   Sets the size of each block. Defaults to 10.
+  -I          Infinite-Storage-Glitch compatibility mode.
+
+ADVANCED OPTIONS:
+  -S <size>   Sets the size of each block for the initial frame.
+              Defaults to 10. Do not change this unless you have
+              a good reason to do so. If you specify this flag
+              while encoding, you will also need to do it while
+              decoding. Cannot be used with -I.
+  -F <args>   Space separated options for encoding with FFmpeg.
+              Defaults to "-c:v libx264 -pix_fmt yuv420p".
+```
+
+## Usage Examples
 
 ```bash
 # Encode archive.zip as a video

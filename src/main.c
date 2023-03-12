@@ -15,6 +15,12 @@
 #define DEFAULT_BLOCK_SIZE 10
 #define DEFAULT_FFMPEG "-c:v libx264 -pix_fmt yuv420p"
 
+#if DEFAULT_BITS == 1
+#define DEFAULT_BITS_DESC " (black and white)"
+#else
+#define DEFAULT_BITS_DESC ""
+#endif
+
 void usage(char *argv0) {
 	fprintf(stderr,
 		"USAGE:\n"
@@ -30,7 +36,7 @@ void usage(char *argv0) {
 		"  -o          Output file. Defaults to stdout.\n"
 		"  -t          Allows writing output to a tty.\n"
 		"  -f <rate>   Framerate. Defaults to %d.\n"
-		"  -b <bits>   Bits per pixel. Defaults to %d (black and white).\n"
+		"  -b <bits>   Bits per pixel. Defaults to %d" DEFAULT_BITS_DESC ".\n"
 		"  -w <width>  Sets video width. Defaults to %d.\n"
 		"  -h <height> Sets video height. Defaults to %d.\n"
 		"  -s <size>   Sets the size of each block. Defaults to %d.\n"

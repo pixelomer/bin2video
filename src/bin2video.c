@@ -21,10 +21,10 @@
 		((u8_pt)[3] & 0xFF) \
 	)
 #define STORE_UINT32(u8_pt, u32) { \
-	(u8_pt)[0] = u32 >> 24; \
-	(u8_pt)[1] = (u32 >> 16) & 0xFF; \
-	(u8_pt)[2] = (u32 >> 8) & 0xFF; \
-	(u8_pt)[3] = u32 & 0xFF; \
+	(u8_pt)[0] = (uint32_t)(u32) >> 24; \
+	(u8_pt)[1] = ((uint32_t)(u32) >> 16) & 0xFF; \
+	(u8_pt)[2] = ((uint32_t)(u32) >> 8) & 0xFF; \
+	(u8_pt)[3] = (uint32_t)(u32) & 0xFF; \
 }
 
 // array[bits_per_pixel][comp]
@@ -33,7 +33,7 @@ static bool did_init_before = false;
 static int bits_per_comp[25][3];
 static double comp_div[25][3];
 
-int get_bit(uint8_t *buffer, int size, int *tbyte, int *tbit, int *idx)
+int get_bit(uint8_t *buffer, int size, int *tbyte, int *tbit, int *idx, bool rev)
 {
 	if (*tbit == 0) {
 		if (*idx == size) {
@@ -43,7 +43,10 @@ int get_bit(uint8_t *buffer, int size, int *tbyte, int *tbit, int *idx)
 		*tbyte = buffer[(*idx)++];
 		*tbit = 0;
 	}
-	int ret = (*tbyte >> (*tbit)++) & 1;
+	int ret;
+	if (rev) ret = (*tbyte >> (7 - *tbit)) & 1;
+	else     ret = (*tbyte >> (*tbit)) & 1;
+	(*tbit)++;
 	if (*tbit == 8) {
 		*tbit = 0;
 	}
@@ -130,7 +133,7 @@ void b2v_context_destroy(struct b2v_context *ctx) {
 
 int _b2v_fill_image_next(uint8_t *image, int bits_per_pixel,
 	int start, int end, uint8_t *buffer, size_t bytes, int *tbit, int *tbyte,
-	int *buffer_idx)
+	int *buffer_idx, bool isg_mode)
 {
 	if (*tbyte == -1) {
 		*tbyte = 0;
@@ -140,7 +143,7 @@ int _b2v_fill_image_next(uint8_t *image, int bits_per_pixel,
 		int value;
 		switch (bits_per_pixel) {
 			case 1:
-				value = get_bit(buffer, bytes, tbyte, tbit, buffer_idx) * 0xFF;
+				value = get_bit(buffer, bytes, tbyte, tbit, buffer_idx, isg_mode) * 0xFF;
 				memset(image + (i * 3), value, 3);
 				break;
 			default:
@@ -148,7 +151,7 @@ int _b2v_fill_image_next(uint8_t *image, int bits_per_pixel,
 					value = 0;
 					for (int b=0; b<bits_per_comp[bits_per_pixel][c]; b++) {
 						value <<= 1;
-						value |= get_bit(buffer, bytes, tbyte, tbit, buffer_idx);
+						value |= get_bit(buffer, bytes, tbyte, tbit, buffer_idx, isg_mode);
 					}
 					value = (uint8_t)round(comp_div[bits_per_pixel][c] * (double)value);
 					image[i * 3 + c] = value;
@@ -159,23 +162,32 @@ int _b2v_fill_image_next(uint8_t *image, int bits_per_pixel,
 	return i;
 }
 
-int b2v_fill_image(struct b2v_context *ctx) {
+int b2v_fill_image(struct b2v_context *ctx, bool isg_mode) {
 	int buffer_idx = 0;
 	int blocks = ctx->width * ctx->height;
 
 	uint8_t metadata[4];
-	const int metadata_end = sizeof(metadata) * 8;
+	int metadata_end;
+	if (isg_mode) {
+		metadata_end = 0;
+	}
+	else {
+		metadata_end = sizeof(metadata) * 8;
+	}
 	
 	int image_idx = _b2v_fill_image_next(ctx->image, ctx->bits_per_pixel,
 		metadata_end, blocks, ctx->buffer, ctx->bytes_available, &ctx->tbit,
-		&ctx->tbyte, &buffer_idx);
+		&ctx->tbyte, &buffer_idx, isg_mode);
 	memset(ctx->image + image_idx * 3, 0, (blocks - image_idx) * 3);
 
-	STORE_UINT32(metadata, image_idx);
-	int ret = buffer_idx, tbyte = 0, tbit = 0;
-	buffer_idx = 0;
-	image_idx = _b2v_fill_image_next(ctx->image, 1, 0, metadata_end, metadata,
-		sizeof(metadata), &tbit, &tbyte, &buffer_idx);
+	int ret = buffer_idx;
+	if (!isg_mode) {
+		STORE_UINT32(metadata, image_idx);
+		int tbyte = 0, tbit = 0;
+		buffer_idx = 0;
+		image_idx = _b2v_fill_image_next(ctx->image, 1, 0, metadata_end, metadata,
+			sizeof(metadata), &tbit, &tbyte, &buffer_idx, isg_mode);
+	}
 
 	// Scale image up
 	for (int y=0; y<ctx->height; y++) {
@@ -198,11 +210,11 @@ int b2v_fill_image(struct b2v_context *ctx) {
 	return ret;
 }
 
-size_t b2v_fill_image_from_file(struct b2v_context *ctx, FILE *file) {
+size_t b2v_fill_image_from_file(struct b2v_context *ctx, FILE *file, bool isg_mode) {
 	size_t bytes_read = fread(ctx->buffer + ctx->bytes_available, 1,
 		ctx->buffer_size - ctx->bytes_available, file);
 	ctx->bytes_available += bytes_read;
-	int next_idx = b2v_fill_image(ctx);
+	int next_idx = b2v_fill_image(ctx, isg_mode);
 	memmove(ctx->buffer, ctx->buffer + next_idx, ctx->bytes_available - next_idx);
 	ctx->bytes_available -= next_idx;
 	return bytes_read;
@@ -466,7 +478,7 @@ int b2v_decode(const char *input, const char *output, int initial_block_size,
 
 int b2v_encode(const char *input, const char *output, int real_width,
 	int real_height, int initial_block_size, int block_size, int bits_per_pixel,
-	int framerate, const char **encode_argv)
+	int framerate, const char **encode_argv, bool isg_mode)
 {
 	int encode_argc = 0;
 	for (const char **pt = encode_argv; *pt != NULL; pt++) {
@@ -524,12 +536,48 @@ int b2v_encode(const char *input, const char *output, int real_width,
 		real_height / initial_block_size, 1, initial_block_size);
 
 	// Store metadata
-	ctx.buffer[0] = METADATA_VERSION;
-	ctx.buffer[1] = (uint8_t)block_size;
-	ctx.buffer[2] = (uint8_t)bits_per_pixel;
-	ctx.buffer[3] = ctx.buffer[0] + ctx.buffer[1] + ctx.buffer[2];
-	ctx.bytes_available = 4;
-	b2v_fill_image(&ctx);
+	if (isg_mode) {
+		int input_fd = fileno(input_file);
+		struct stat input_stat;
+		if (fstat(input_fd, &input_stat) != 0) {
+			perror("couldn't stat() input file");
+			fprintf(stderr, "only regular files can be encoded in Infinite-Storage-Glitch"
+				" mode\n");
+			fclose(input_file);
+			return EXIT_FAILURE;
+		}
+		off_t filesize = input_stat.st_size;
+		uint32_t final_frame, final_block;
+		int data_width = real_width / block_size;
+		int data_height = real_height / block_size;
+		int data_frame = data_width * data_height;
+		if (bits_per_pixel == 1) {
+			STORE_UINT32(ctx.buffer, 0x0);
+			final_frame = (filesize * 8) / data_frame;
+			final_block = (filesize * 8) % data_frame;
+		}
+		else /* if (bits_per_pixel == 24) */ {
+			STORE_UINT32(ctx.buffer, 0xFFFFFFFF);
+			final_frame = (filesize / 3) / data_frame;
+			final_block = (filesize / 3) % data_frame;
+		}
+		if (final_block != 0) {
+			final_frame += 1;
+		}
+		STORE_UINT32(ctx.buffer + 4, final_frame);
+		STORE_UINT32(ctx.buffer + 8, final_block);
+		STORE_UINT32(ctx.buffer + 12, block_size);
+		STORE_UINT32(ctx.buffer + 16, 0xFFFFFFFF);
+		ctx.bytes_available = 20;
+	}
+	else {
+		ctx.buffer[0] = METADATA_VERSION;
+		ctx.buffer[1] = (uint8_t)block_size;
+		ctx.buffer[2] = (uint8_t)bits_per_pixel;
+		ctx.buffer[3] = ctx.buffer[0] + ctx.buffer[1] + ctx.buffer[2];
+		ctx.bytes_available = 4;
+	}
+	b2v_fill_image(&ctx, isg_mode);
 	fwrite(ctx.image_scaled, pixels * 3, 1, ffmpeg_process.stdin_file);
 
 	// Store file data
@@ -543,7 +591,7 @@ int b2v_encode(const char *input, const char *output, int real_width,
 	int frame = 0;
 
 	while ( !feof(input_file) ) {
-		bytes_read += b2v_fill_image_from_file(&ctx, input_file);
+		bytes_read += b2v_fill_image_from_file(&ctx, input_file, isg_mode);
 		fprintf(stderr, "\r%.1lf KiB written, %d frames",
 			((double)bytes_read / 1024), ++frame);
 		fwrite(ctx.image_scaled, pixels * 3, 1, ffmpeg_process.stdin_file);

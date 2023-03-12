@@ -34,8 +34,7 @@ void usage(char *argv0) {
 		"  -w <width>  Sets video width. Defaults to %d.\n"
 		"  -h <height> Sets video height. Defaults to %d.\n"
 		"  -s <size>   Sets the size of each block. Defaults to %d.\n"
-		"  -I          Infinite-Storage-Glitch compatibility mode. Can only\n"
-		"              be used in decode mode.\n"
+		"  -I          Infinite-Storage-Glitch compatibility mode.\n"
 		"\n"
 		"ADVANCED OPTIONS:\n"
 		"  -S <size>   Sets the size of each block for the initial frame.\n"
@@ -151,6 +150,9 @@ int main(int argc, char **argv) {
 	}
 	if (isg_mode) {
 		initial_block_size = 5;
+		if ((bits_per_pixel != 1) && (bits_per_pixel != 24)) {
+			DIE("bits-per-pixel must be either 1 or 24 in Infinite-Storage-Glitch mode");
+		}
 	}
 	int ret;
 	switch (operation_mode) {
@@ -167,12 +169,9 @@ int main(int argc, char **argv) {
 			if (output_file == NULL) {
 				DIE("output file cannot be stdout in encode mode");
 			}
-			if (isg_mode) {
-				DIE("cannot encode files in Infinite-Storage-Glitch mode");
-			}
 			ret = b2v_encode(input_file, output_file, width, height,
 				initial_block_size, block_size, bits_per_pixel, framerate,
-				encode_argv);
+				encode_argv, isg_mode);
 			break;
 		}
 	}

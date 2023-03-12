@@ -382,6 +382,8 @@ int b2v_decode(const char *input, const char *output, int initial_block_size,
 
 	int frame = 0;
 	size_t bytes_written = 0;
+	int truncate_frame = -1;
+	int truncate_bytes = -1;
 	int result = -1;
 	while (result == -1) {
 		unsigned int read_ret = subprocess_read_stdout(&ffmpeg_process,
@@ -396,13 +398,19 @@ int b2v_decode(const char *input, const char *output, int initial_block_size,
 			if (isg_mode) {
 				// Infinite-Storage-Glitch metadata
 				uint32_t color_mode = LOAD_UINT32(ctx.buffer);
+				uint32_t final_frame = LOAD_UINT32(ctx.buffer + 4);
+				uint32_t final_byte = LOAD_UINT32(ctx.buffer + 8);
 				uint32_t instruction_size = LOAD_UINT32(ctx.buffer + 12);
+
 				ctx.scale = (int)instruction_size;
+				truncate_frame = final_frame + 1;
 				if (color_mode == 0) {
 					ctx.bits_per_pixel = 1;
+					truncate_bytes = final_byte / 8;
 				}
 				else {
 					ctx.bits_per_pixel = 24;
+					truncate_bytes = final_byte * 3;
 				}
 			}
 			else {
@@ -426,6 +434,15 @@ int b2v_decode(const char *input, const char *output, int initial_block_size,
 		}
 		else {
 			// File data
+			if (truncate_frame != -1) {
+				// Trim null bytes in Infinite-Storage-Glitch mode
+				if ((frame == truncate_frame) && (truncate_bytes < ret)) {
+					ret = truncate_bytes;
+				}
+				else if (frame > truncate_frame) {
+					continue;
+				}
+			}
 			bytes_written += ret;
 			fprintf(stderr, "\r%.1lf KiB written, %d frames",
 				((double)bytes_written / 1024), frame);

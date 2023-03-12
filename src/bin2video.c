@@ -496,39 +496,6 @@ int b2v_encode(const char *input, const char *output, int real_width,
 		}
 	}
 
-	struct subprocess_s ffmpeg_process;
-	int subprocess_ret;
-	{
-		char framerate_str[16];
-		snprintf(framerate_str, sizeof(framerate_str), "%d", framerate);
-		framerate_str[sizeof(framerate_str)-1] = 0;
-
-		char video_resolution[33];
-		snprintf(video_resolution, sizeof(video_resolution), "%dx%d", real_width,
-			real_height);
-		video_resolution[sizeof(video_resolution)-1] = 0;
-
-		const char *argv_start[] = { "ffmpeg", "-framerate", framerate_str, "-s",
-			video_resolution, "-f", "rawvideo", "-pix_fmt", "rgb24", "-i", "-",
-			"-movflags", "+faststart", "-hide_banner", "-y", "-v", "quiet" };
-		const char *argv_end[] = { "--", output, NULL };
-		const char **argv = malloc( ( (sizeof(argv_start) / sizeof(*argv_start)) +
-			(sizeof(argv_end) / sizeof(*argv_end)) + encode_argc ) * sizeof(*argv) );
-		memcpy(argv, argv_start, sizeof(argv_start));
-		memcpy(argv + (sizeof(argv_start) / sizeof(*argv_start)), encode_argv,
-			encode_argc * sizeof(*argv) );
-		memcpy(argv + (sizeof(argv_start) / sizeof(*argv_start)) + encode_argc,
-			argv_end, sizeof(argv_end));
-		subprocess_ret = spawn(argv, &ffmpeg_process, false);
-		free(argv);
-
-		if ( subprocess_ret == -1 ) {
-			fprintf(stderr, "couldn't spawn ffmpeg\n");
-			fclose(input_file);
-			return EXIT_FAILURE;
-		}
-	}
-
 	const int pixels = real_width * real_height;
 	
 	struct b2v_context ctx;
@@ -578,6 +545,40 @@ int b2v_encode(const char *input, const char *output, int real_width,
 		ctx.bytes_available = 4;
 	}
 	b2v_fill_image(&ctx, isg_mode);
+
+	struct subprocess_s ffmpeg_process;
+	int subprocess_ret;
+	{
+		char framerate_str[16];
+		snprintf(framerate_str, sizeof(framerate_str), "%d", framerate);
+		framerate_str[sizeof(framerate_str)-1] = 0;
+
+		char video_resolution[33];
+		snprintf(video_resolution, sizeof(video_resolution), "%dx%d", real_width,
+			real_height);
+		video_resolution[sizeof(video_resolution)-1] = 0;
+
+		const char *argv_start[] = { "ffmpeg", "-framerate", framerate_str, "-s",
+			video_resolution, "-f", "rawvideo", "-pix_fmt", "rgb24", "-i", "-",
+			"-movflags", "+faststart", "-hide_banner", "-y", "-v", "quiet" };
+		const char *argv_end[] = { "--", output, NULL };
+		const char **argv = malloc( ( (sizeof(argv_start) / sizeof(*argv_start)) +
+			(sizeof(argv_end) / sizeof(*argv_end)) + encode_argc ) * sizeof(*argv) );
+		memcpy(argv, argv_start, sizeof(argv_start));
+		memcpy(argv + (sizeof(argv_start) / sizeof(*argv_start)), encode_argv,
+			encode_argc * sizeof(*argv) );
+		memcpy(argv + (sizeof(argv_start) / sizeof(*argv_start)) + encode_argc,
+			argv_end, sizeof(argv_end));
+		subprocess_ret = spawn(argv, &ffmpeg_process, false);
+		free(argv);
+
+		if ( subprocess_ret == -1 ) {
+			fprintf(stderr, "couldn't spawn ffmpeg\n");
+			fclose(input_file);
+			return EXIT_FAILURE;
+		}
+	}
+
 	fwrite(ctx.image_scaled, pixels * 3, 1, ffmpeg_process.stdin_file);
 
 	// Store file data

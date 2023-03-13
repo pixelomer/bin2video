@@ -10,6 +10,7 @@
 #define DEFAULT_WIDTH 1280
 #define DEFAULT_HEIGHT 720
 #define DEFAULT_BITS 1
+#define DEFAULT_ISG_INITIAL_BLOCK_SIZE 5
 #define DEFAULT_INITIAL_BLOCK_SIZE 10
 #define DEFAULT_FRAMERATE 10
 #define DEFAULT_BLOCK_SIZE 10
@@ -47,11 +48,14 @@ void usage(char *argv0) {
 		"              Defaults to %d. Do not change this unless you have\n"
 		"              a good reason to do so. If you specify this flag\n"
 		"              while encoding, you will also need to do it while\n"
-		"              decoding. Cannot be used with -I.\n"
+		"              decoding.\n"
+		"              In Infinite-Storage-Glitch compatibility mode, this\n"
+		"              value defaults to %d and cannot be changed.\n"
 		"  -F <args>   Space separated options for encoding with FFmpeg.\n"
 		"              Defaults to \"%s\".\n"
 		, argv0, argv0, DEFAULT_FRAMERATE, DEFAULT_BITS, DEFAULT_WIDTH, DEFAULT_HEIGHT,
-		DEFAULT_BLOCK_SIZE, DEFAULT_INITIAL_BLOCK_SIZE, DEFAULT_FFMPEG);
+		DEFAULT_BLOCK_SIZE, DEFAULT_INITIAL_BLOCK_SIZE, DEFAULT_ISG_INITIAL_BLOCK_SIZE,
+		DEFAULT_FFMPEG);
 }
 
 #define USAGE() { usage(argv[0]); return EXIT_FAILURE; }
@@ -155,7 +159,7 @@ int main(int argc, char **argv) {
 		DIE("(width * height) must be at least 100");
 	}
 	if (isg_mode) {
-		initial_block_size = 5;
+		initial_block_size = DEFAULT_ISG_INITIAL_BLOCK_SIZE;
 		if ((bits_per_pixel != 1) && (bits_per_pixel != 24)) {
 			DIE("bits-per-pixel must be either 1 or 24 in Infinite-Storage-Glitch mode");
 		}

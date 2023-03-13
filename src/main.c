@@ -7,6 +7,10 @@
 #include <errno.h>
 #include "bin2video.h"
 
+#define MINIMUM_BLOCK_COUNT 100
+#define STR(x) #x
+#define STR_VAL(x) STR(x)
+
 #define DEFAULT_WIDTH 1280
 #define DEFAULT_HEIGHT 720
 #define DEFAULT_BITS 1
@@ -155,8 +159,10 @@ int main(int argc, char **argv) {
 	if ((width % 2 != 0) || (height % 2 != 0)) {
 		DIE("width and height must be divisible by 0");
 	}
-	if (width * height < 100) {
-		DIE("(width * height) must be at least 100");
+	if (((width * height) / (initial_block_size * initial_block_size)) < MINIMUM_BLOCK_COUNT ||
+		((width * height) / (block_size * block_size)) < MINIMUM_BLOCK_COUNT) {
+		DIE("a minimum of " STR_VAL(MINIMUM_BLOCK_COUNT) " blocks must be available "
+			"at all times, make sure the resolution and block sizes are big enough");
 	}
 	if (isg_mode) {
 		initial_block_size = DEFAULT_ISG_INITIAL_BLOCK_SIZE;

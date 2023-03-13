@@ -29,9 +29,9 @@ OPTIONS:
   -t          Allows writing output to a tty.
   -f <rate>   Framerate. Defaults to 10.
   -b <bits>   Bits per pixel. Defaults to 1 (black and white).
-  -w <width>  Sets video width. Defaults to 1280.
-  -h <height> Sets video height. Defaults to 720.
-  -s <size>   Sets the size of each block. Defaults to 10.
+  -w <width>  Video width. Defaults to 1280.
+  -h <height> Video height. Defaults to 720.
+  -s <size>   Size of each block. Defaults to 5.
   -I          Infinite-Storage-Glitch compatibility mode.
 
 ADVANCED OPTIONS:
@@ -39,7 +39,9 @@ ADVANCED OPTIONS:
               Defaults to 10. Do not change this unless you have
               a good reason to do so. If you specify this flag
               while encoding, you will also need to do it while
-              decoding. Cannot be used with -I.
+              decoding.
+              In Infinite-Storage-Glitch compatibility mode, this
+              value defaults to 5 and cannot be changed.
   -F <args>   Space separated options for encoding with FFmpeg.
               Defaults to "-c:v libx264 -pix_fmt yuv420p".
 ```

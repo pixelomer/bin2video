@@ -1,11 +1,15 @@
 # bin2video
 
-A C program for encoding anything as a video file. Inspired by [Infinite-Storage-Glitch](https://github.com/DvorakDwarf/Infinite-Storage-Glitch).
+A C program for encoding anything as a video file. Inspired by [Infinite-Storage-Glitch](https://github.com/DvorakDwarf/Infinite-Storage-Glitch). Supports Windows, macOS and Linux.
 
 ## Building
 
+**Windows:** bin2video can be compiled with [w64devkit](https://github.com/skeeto/w64devkit).  
+**macOS:** Make sure command line tools are installed with `xcode-select --install`.  
+**Linux:** Make sure `build-essential` or equivalent is installed.
+
 ```bash
-cc src/*.c -lm -O3 -o bin2video
+cc src/*.c -lm -O3 -o bin2video.exe
 ```
 
 ## Dependencies

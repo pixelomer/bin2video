@@ -397,12 +397,21 @@ int b2v_decode(const char *input, const char *output, int initial_block_size,
 	int truncate_frame = -1;
 	int truncate_bytes = -1;
 	int result = -1;
+	unsigned int read_idx = 0;
 	while (result == -1) {
-		unsigned int read_ret = subprocess_read_stdout(&ffmpeg_process,
-			(char *)ctx.image_scaled, blocks * ctx.scale * ctx.scale * 3);
-		if (read_ret == 0) {
-			result = EXIT_SUCCESS;
-			break;
+		int is_alive = subprocess_alive(&ffmpeg_process);
+		unsigned int target_read = (blocks * ctx.scale * ctx.scale * 3);
+		unsigned int new_read = subprocess_read_stdout(&ffmpeg_process,
+			(char *)ctx.image_scaled + read_idx, target_read - read_idx);
+		if (new_read == 0) {
+			if (!is_alive) {
+				result = EXIT_SUCCESS;
+				break;
+			}
+		}
+		read_idx += new_read;
+		if (read_idx != target_read) {
+			continue;
 		}
 		int ret = b2v_decode_image(&ctx, isg_mode);
 		if (frame++ == 0) {
@@ -452,6 +461,7 @@ int b2v_decode(const char *input, const char *output, int initial_block_size,
 					ret = truncate_bytes;
 				}
 				else if (frame > truncate_frame) {
+					read_idx = 0;
 					continue;
 				}
 			}
@@ -460,6 +470,7 @@ int b2v_decode(const char *input, const char *output, int initial_block_size,
 				((double)bytes_written / 1024), frame);
 			fwrite(ctx.buffer, 1, ret, output_file);
 		}
+		read_idx = 0;
 	}
 	fprintf(stderr, "\n");
 

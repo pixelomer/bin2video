@@ -34,7 +34,8 @@ OPTIONS:
   -f <rate>   Framerate. Defaults to 10. Set to -1 to let FFmpeg
               decide.
   -c <n>      Write every frame n times. Defaults to 1. Cannot be
-              used with -I.  -b <bits>   Bits per pixel. Defaults to 1 (black and white).
+              used with -I.
+  -b <bits>   Bits per pixel. Defaults to 1 (black and white).
   -w <width>  Video width. Defaults to 1280.
   -h <height> Video height. Defaults to 720.
   -H <height> Data height. Set this to a value less than the video
@@ -56,6 +57,7 @@ ADVANCED OPTIONS:
               and cannot be changed.
   -F <args>   Space separated options for encoding with FFmpeg.
               Defaults to "-c:v libx264 -pix_fmt yuv420p".
+
 ```
 
 ## Usage Examples

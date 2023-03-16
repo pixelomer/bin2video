@@ -45,7 +45,7 @@ void usage(char *argv0) {
 		"  -f <rate>   Framerate. Defaults to %d. Set to -1 to let FFmpeg\n"
 		"              decide.\n"
 		"  -c <n>      Write every frame n times. Defaults to %d. Cannot be\n"
-		"              used with -I."
+		"              used with -I.\n"
 		"  -b <bits>   Bits per pixel. Defaults to %d" DEFAULT_BITS_DESC ".\n"
 		"  -w <width>  Video width. Defaults to %d.\n"
 		"  -h <height> Video height. Defaults to %d.\n"

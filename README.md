@@ -2,6 +2,14 @@
 
 A C program for encoding anything as a video file. Inspired by [Infinite-Storage-Glitch](https://github.com/DvorakDwarf/Infinite-Storage-Glitch). Supports Windows, macOS and Linux.
 
+## Demo
+
+![Demo](demo.gif)
+
+(Scene from Big Buck Bunny, Copyright 2008, Blender Foundation / https://www.bigbuckbunny.org)
+
+This GIF file can be decoded with `bin2video` to extract the peppers test image.
+
 ## Building
 
 **Windows:** bin2video can be compiled with [w64devkit](https://github.com/skeeto/w64devkit).  
@@ -79,4 +87,8 @@ ADVANCED OPTIONS:
 # (Example video taken from Infinite-Storage-Glitch README.md)
 yt-dlp -f 247 -o isg-video.webm 'https://www.youtube.com/watch?v=8I4fd_Sap-g'
 ./bin2video -I -d -i isg-video.webm -o archive.zip
+
+# Encode file.bin and merge it with video.mp4 to generate
+# video-out.mp4
+./embed.sh file.bin video.mp4 video-out.mp4
 ```

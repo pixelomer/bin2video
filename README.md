@@ -9,7 +9,7 @@ A C program for encoding anything as a video file. Inspired by [Infinite-Storage
 **Linux:** Make sure `build-essential` or equivalent is installed.
 
 ```bash
-cc src/*.c -lm -O3 -o bin2video.exe
+cc src/*.c -lm -O3 -o bin2video
 ```
 
 ## Dependencies

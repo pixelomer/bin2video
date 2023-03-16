@@ -20,6 +20,7 @@
 #define DEFAULT_FRAME_WRITE 1
 #define DEFAULT_DATA_HEIGHT -1
 #define DEFAULT_BLOCK_SIZE 5
+//FIXME: Changing DEFAULT_FFMPEG does not actually change the default arguments
 #define DEFAULT_FFMPEG "-c:v libx264 -pix_fmt yuv420p"
 
 #if DEFAULT_BITS == 1
@@ -66,8 +67,9 @@ void usage(char *argv0) {
 		"              while encoding, you will also need to do it while\n"
 		"              decoding. When -I is used, this value defaults to %d\n"
 		"              and cannot be changed.\n"
-		"  -F <args>   Space separated options for encoding with FFmpeg.\n"
-		"              Defaults to \"%s\".\n"
+		"  --          Options following -- will be treated as arguments for\n"
+		"              FFmpeg. Defaults to \"%s\".\n"
+		"              Has no effect in decode mode.\n"
 		, argv0, argv0, DEFAULT_FRAMERATE, DEFAULT_FRAME_WRITE, DEFAULT_BITS,
 		DEFAULT_WIDTH, DEFAULT_HEIGHT, DEFAULT_DATA_HEIGHT, DEFAULT_BLOCK_SIZE,
 		DEFAULT_INITIAL_BLOCK_SIZE, DEFAULT_ISG_INITIAL_BLOCK_SIZE,
@@ -97,12 +99,11 @@ int main(int argc, char **argv) {
 	int height = DEFAULT_HEIGHT;
 	bool write_to_tty = false;
 	int framerate = DEFAULT_FRAMERATE;
-	const char *encode_flags = DEFAULT_FFMPEG;
 	bool isg_mode = false;
 
 	int opt;
 	bool opts[0x100] = {};
-	while ((opt = getopt(argc, argv, "F:f:b:w:h:s:S:i:o:detIH:c:E")) != -1) {
+	while ((opt = getopt(argc, argv, "f:b:w:h:s:S:i:o:detIH:c:E")) != -1) {
 		if (opts[opt & 0xFF]) USAGE();
 		opts[opt & 0xFF] = true;
 		switch (opt) {
@@ -133,41 +134,25 @@ int main(int argc, char **argv) {
 			case 'E': black_frame = true; break;
 			case 'o': output_file = optarg; break;
 			case 't': write_to_tty = true; break;
-			case 'F': encode_flags = optarg; break;
 			case 'd':
 			case 'e':
 				if (operation_mode != 0) USAGE();
 				operation_mode = opt;
 				break;
+			case '?':
 			default:
 				USAGE();
 		}
 	}
 
-	const char **encode_argv;
-	char *encode_flags_copy = strdup(encode_flags);
-	{
-		int encode_argc = 0;
-		char *token = strtok(encode_flags_copy, " ");
-		while (token != NULL) {
-			encode_argc++;
-			token = strtok(NULL, " ");
-		}
-
-		strcpy(encode_flags_copy, encode_flags);
-		encode_argv = malloc((encode_argc + 1) * sizeof(*encode_argv));
-		int i = 0;
-		token = strtok(encode_flags_copy, " ");
-		while (token != NULL) {
-			encode_argv[i++] = token;
-			token = strtok(NULL, " ");
-		}
-		encode_argv[i] = NULL;
-	}
-
+	const char *default_encode_argv[] = { "-c:v", "libx264", "-pix_fmt", "yuv420p",
+		NULL };
+	const char **encode_argv = default_encode_argv;
 	if (optind != argc) {
-		USAGE();
+		// argv[argc] is always NULL
+		encode_argv = (const char **)argv + optind;
 	}
+
 	if (operation_mode == 0) {
 		USAGE();
 	}
@@ -226,8 +211,6 @@ int main(int argc, char **argv) {
 			break;
 		}
 	}
-	free(encode_argv);
-	free(encode_flags_copy);
 	return ret;
 }
 #undef USAGE

@@ -55,9 +55,9 @@ ADVANCED OPTIONS:
               while encoding, you will also need to do it while
               decoding. When -I is used, this value defaults to 5
               and cannot be changed.
-  -F <args>   Space separated options for encoding with FFmpeg.
-              Defaults to "-c:v libx264 -pix_fmt yuv420p".
-
+  --          Options following -- will be treated as arguments for
+              FFmpeg. Defaults to "-c:v libx264 -pix_fmt yuv420p".
+              Has no effect in decode mode.
 ```
 
 ## Usage Examples

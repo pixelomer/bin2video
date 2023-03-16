@@ -26,4 +26,4 @@ if [ "${binary}" != "-" ]; then
 fi
 
 set -x
-./bin2video -e -E -f -1 -b "${BITS_PER_PIXEL}" -c "${FRAME_REPEAT}" -h "$((height + DATA_HEIGHT))" -w "${width}" -H "${DATA_HEIGHT}" "${in_args[@]}" -F "-i ${video_in} -filter_complex overlay=x=0:y=main_h-overlay_h -c:a copy -pix_fmt yuv420p -c:v libx264" -o "${video_out}"
+./bin2video -e -E -f -1 -b "${BITS_PER_PIXEL}" -c "${FRAME_REPEAT}" -h "$((height + DATA_HEIGHT))" -w "${width}" -H "${DATA_HEIGHT}" "${in_args[@]}" -o "${video_out}" -- -i "${video_in}" -filter_complex "overlay=x=0:y=main_h-overlay_h" -c:a copy -pix_fmt yuv420p -c:v libx264

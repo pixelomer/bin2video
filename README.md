@@ -31,21 +31,29 @@ OPTIONS:
   -i          Input file. Defaults to stdin.
   -o          Output file. Defaults to stdout.
   -t          Allows writing output to a tty.
-  -f <rate>   Framerate. Defaults to 10.
-  -b <bits>   Bits per pixel. Defaults to 1 (black and white).
+  -f <rate>   Framerate. Defaults to 10. Set to -1 to let FFmpeg
+              decide.
+  -c <n>      Write every frame n times. Defaults to 1. Cannot be
+              used with -I.  -b <bits>   Bits per pixel. Defaults to 1 (black and white).
   -w <width>  Video width. Defaults to 1280.
   -h <height> Video height. Defaults to 720.
+  -H <height> Data height. Set this to a value less than the video
+              height to limit the data blocks to a region on top of
+              the video. The bottom of the region will be black.
+              A value of -1 disables the data height. Defaults to -1.
+              Cannot be used with -I.
   -s <size>   Size of each block. Defaults to 5.
   -I          Infinite-Storage-Glitch compatibility mode.
+  -E          End the output with a black frame. Cannot be used with
+              -I.
 
 ADVANCED OPTIONS:
   -S <size>   Sets the size of each block for the initial frame.
               Defaults to 10. Do not change this unless you have
               a good reason to do so. If you specify this flag
               while encoding, you will also need to do it while
-              decoding.
-              In Infinite-Storage-Glitch compatibility mode, this
-              value defaults to 5 and cannot be changed.
+              decoding. When -I is used, this value defaults to 5
+              and cannot be changed.
   -F <args>   Space separated options for encoding with FFmpeg.
               Defaults to "-c:v libx264 -pix_fmt yuv420p".
 ```

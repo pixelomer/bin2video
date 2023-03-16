@@ -11,7 +11,7 @@
 #include "bin2video.h"
 #include "subprocess.h"
 
-#define METADATA_VERSION 1
+#define METADATA_VERSION 2
 
 #define LOAD_UINT32(u8_pt) \
 	(uint32_t)( \
@@ -76,6 +76,7 @@ struct b2v_context {
 	int tbyte;
 	int tbit;
 	int width;
+	int scaled_pad_height;
 	int height;
 	int bits_per_pixel;
 	size_t buffer_size;
@@ -92,8 +93,12 @@ void b2v_context_realloc(struct b2v_context *ctx) {
 	if (ctx->image != NULL) free(ctx->image);
 	ctx->image = malloc(blocks * 3);
 
+	int pixels = ctx->width * ctx->height * ctx->scale * ctx->scale;
+	int padded_pixels = ctx->width * (ctx->height + ctx->scaled_pad_height) *
+		ctx->scale * ctx->scale;
 	if (ctx->image_scaled != NULL) free(ctx->image_scaled);
-	ctx->image_scaled = malloc(blocks * ctx->scale * ctx->scale * 3);
+	ctx->image_scaled = malloc(padded_pixels * 3);
+	memset(ctx->image_scaled + pixels * 3, 0, (padded_pixels - pixels) * 3);
 
 	ctx->tbit = 0;
 	ctx->tbyte = 0;
@@ -101,7 +106,7 @@ void b2v_context_realloc(struct b2v_context *ctx) {
 }
 
 void b2v_context_init(struct b2v_context *ctx, int width, int height,
-	int bits_per_pixel, int scale)
+	int bits_per_pixel, int scale, int pad_height)
 {
 	if (!did_init_before) {
 		did_init_before = true;
@@ -119,6 +124,7 @@ void b2v_context_init(struct b2v_context *ctx, int width, int height,
 
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->width = width;
+	ctx->scaled_pad_height = pad_height;
 	ctx->height = height;
 	ctx->scale = scale;
 	ctx->bits_per_pixel = bits_per_pixel;
@@ -250,7 +256,6 @@ void _b2v_decode_image_next(uint8_t *image, int bits_per_pixel,
 int b2v_decode_image(struct b2v_context *ctx, bool isg_mode) {
 	// Scale image down
 	int scaled_width = ctx->width * ctx->scale;
-	int scaled_height = ctx->height * ctx->scale;
 	for (int y=0; y<ctx->height; y++) {
 		for (int x=0; x<ctx->width; x++) {
 			for (int i=0; i<3; i++) {
@@ -385,16 +390,15 @@ int b2v_decode(const char *input, const char *output, int initial_block_size,
 		return EXIT_FAILURE;
 	}
 
-	int bit=0, byte=0;
-
 	struct b2v_context ctx;
 	b2v_context_init(&ctx, real_width / initial_block_size,
-		real_height / initial_block_size, 1, initial_block_size);
+		real_height / initial_block_size, 1, initial_block_size, 0);
 	int blocks = ctx.width * ctx.height;
 
 	int frame = 0;
 	size_t bytes_written = 0;
 	int truncate_frame = -1;
+	int frame_write = 1;
 	int truncate_bytes = -1;
 	int result = -1;
 	unsigned int read_idx = 0;
@@ -413,8 +417,13 @@ int b2v_decode(const char *input, const char *output, int initial_block_size,
 		if (read_idx != target_read) {
 			continue;
 		}
+		if (frame++ % frame_write != 0) {
+			// Repeated frame
+			read_idx = 0;
+			continue;
+		}
 		int ret = b2v_decode_image(&ctx, isg_mode);
-		if (frame++ == 0) {
+		if (frame == 1) {
 			// Metadata
 			if (isg_mode) {
 				// Infinite-Storage-Glitch metadata
@@ -437,15 +446,18 @@ int b2v_decode(const char *input, const char *output, int initial_block_size,
 			else {
 				// bin2video metadata
 				uint8_t metadata_version = ctx.buffer[0];
-				if (metadata_version != METADATA_VERSION) {
-					fprintf(stderr, "warning: unsupported metadata version (expected %d, "
-						"got %d)\n", METADATA_VERSION, metadata_version);
+				if ((metadata_version == 0) || (metadata_version > METADATA_VERSION)) {
+					fprintf(stderr, "warning: unsupported metadata version (%d)\n",
+						metadata_version);
 				}
 				ctx.scale = (int)ctx.buffer[1];
 				ctx.bits_per_pixel = (int)ctx.buffer[2];
 				uint8_t checksum = ctx.buffer[0] + ctx.buffer[1] + ctx.buffer[2];
 				if (checksum != ctx.buffer[3]) {
 					fprintf(stderr, "warning: corrupted metadata checksum\n");
+				}
+				if (metadata_version >= 2) {
+					frame_write = (int)ctx.buffer[4];
 				}
 			}
 			ctx.width = real_width / ctx.scale;
@@ -477,7 +489,6 @@ int b2v_decode(const char *input, const char *output, int initial_block_size,
 	b2v_context_destroy(&ctx);
 	fclose(output_file);
 	
-	subprocess_terminate(&ffmpeg_process);
 	subprocess_destroy(&ffmpeg_process);
 	if (result == 0) {
 		return EXIT_SUCCESS;
@@ -489,8 +500,13 @@ int b2v_decode(const char *input, const char *output, int initial_block_size,
 
 int b2v_encode(const char *input, const char *output, int real_width,
 	int real_height, int initial_block_size, int block_size, int bits_per_pixel,
-	int framerate, const char **encode_argv, bool isg_mode)
+	int framerate, const char **encode_argv, bool isg_mode, int data_height,
+	int frame_write, bool black_frame)
 {
+	if ((data_height > real_height) || (data_height < 0)) {
+		data_height = real_height;
+	}
+
 	int encode_argc = 0;
 	for (const char **pt = encode_argv; *pt != NULL; pt++) {
 		encode_argc++;
@@ -507,11 +523,12 @@ int b2v_encode(const char *input, const char *output, int real_width,
 		}
 	}
 
-	const int pixels = real_width * real_height;
+	int pixels = real_width * real_height;
+	int pad_height = real_width - data_height;
 	
 	struct b2v_context ctx;
 	b2v_context_init(&ctx, real_width / initial_block_size,
-		real_height / initial_block_size, 1, initial_block_size);
+		data_height / initial_block_size, 1, initial_block_size, pad_height);
 
 	// Store metadata
 	if (isg_mode) {
@@ -526,18 +543,18 @@ int b2v_encode(const char *input, const char *output, int real_width,
 		}
 		off_t filesize = input_stat.st_size;
 		uint32_t final_frame, final_block;
-		int data_width = real_width / block_size;
-		int data_height = real_height / block_size;
-		int data_frame = data_width * data_height;
+		int frame_width = real_width / block_size;
+		int frame_height = data_height / block_size;
+		int frame = frame_width * frame_height;
 		if (bits_per_pixel == 1) {
 			STORE_UINT32(ctx.buffer, 0x0);
-			final_frame = (filesize * 8) / data_frame;
-			final_block = (filesize * 8) % data_frame;
+			final_frame = (filesize * 8) / frame;
+			final_block = (filesize * 8) % frame;
 		}
 		else /* if (bits_per_pixel == 24) */ {
 			STORE_UINT32(ctx.buffer, 0xFFFFFFFF);
-			final_frame = (filesize / 3) / data_frame;
-			final_block = (filesize / 3) % data_frame;
+			final_frame = (filesize / 3) / frame;
+			final_block = (filesize / 3) % frame;
 		}
 		if (final_block != 0) {
 			final_frame += 1;
@@ -553,7 +570,8 @@ int b2v_encode(const char *input, const char *output, int real_width,
 		ctx.buffer[1] = (uint8_t)block_size;
 		ctx.buffer[2] = (uint8_t)bits_per_pixel;
 		ctx.buffer[3] = ctx.buffer[0] + ctx.buffer[1] + ctx.buffer[2];
-		ctx.bytes_available = 4;
+		ctx.buffer[4] = (uint8_t)frame_write;
+		ctx.bytes_available = 5;
 	}
 	b2v_fill_image(&ctx, isg_mode);
 
@@ -569,19 +587,29 @@ int b2v_encode(const char *input, const char *output, int real_width,
 			real_height);
 		video_resolution[sizeof(video_resolution)-1] = 0;
 
-		const char *argv_start[] = { "ffmpeg", "-framerate", framerate_str, "-s",
-			video_resolution, "-f", "rawvideo", "-pix_fmt", "rgb24", "-i", "-",
-			"-movflags", "+faststart", "-hide_banner", "-y", "-v", "quiet" };
-		const char *argv_end[] = { "--", output, NULL };
-		const char **argv = malloc( ( (sizeof(argv_start) / sizeof(*argv_start)) +
-			(sizeof(argv_end) / sizeof(*argv_end)) + encode_argc ) * sizeof(*argv) );
-		memcpy(argv, argv_start, sizeof(argv_start));
-		memcpy(argv + (sizeof(argv_start) / sizeof(*argv_start)), encode_argv,
-			encode_argc * sizeof(*argv) );
-		memcpy(argv + (sizeof(argv_start) / sizeof(*argv_start)) + encode_argc,
-			argv_end, sizeof(argv_end));
-		subprocess_ret = spawn(argv, &ffmpeg_process, false);
-		free(argv);
+		// 1) prepares argv = argv_start + encode_argv + argv_end 
+		// 2) spawns ffmpeg with argv
+		{
+			const char *_argv_start[] = { "ffmpeg", "-framerate", framerate_str, "-s",
+				video_resolution, "-f", "rawvideo", "-pix_fmt", "rgb24", "-i", "-" };
+			int argv_start_len = sizeof(_argv_start) / sizeof(*_argv_start);
+			const char **argv_start = _argv_start;
+			if (framerate == -1) {
+				argv_start += 2;
+				argv_start[0] = "ffmpeg";
+				argv_start_len -= 2;
+			}
+			const char *argv_end[] = { "-movflags", "+faststart", "-hide_banner", "-y",
+				"-v", "quiet", "--", output, NULL };
+			const char **argv = malloc( (argv_start_len +
+				(sizeof(argv_end) / sizeof(*argv_end)) + encode_argc ) * sizeof(*argv) );
+			memcpy(argv, argv_start, argv_start_len * sizeof(*argv_start));
+			memcpy(argv + argv_start_len, encode_argv,
+				encode_argc * sizeof(*argv) );
+			memcpy(argv + argv_start_len + encode_argc, argv_end, sizeof(argv_end));
+			subprocess_ret = spawn(argv, &ffmpeg_process, false);
+			free(argv);
+		}
 
 		if ( subprocess_ret == -1 ) {
 			fprintf(stderr, "couldn't spawn ffmpeg\n");
@@ -590,13 +618,15 @@ int b2v_encode(const char *input, const char *output, int real_width,
 		}
 	}
 
-	fwrite(ctx.image_scaled, pixels * 3, 1, ffmpeg_process.stdin_file);
+	for (int i=0; i<frame_write; i++) {
+		fwrite(ctx.image_scaled, pixels * 3, 1, ffmpeg_process.stdin_file);
+	}
 
 	// Store file data
 	ctx.bits_per_pixel = bits_per_pixel;
 	ctx.scale = block_size;
 	ctx.width = real_width / block_size;
-	ctx.height = real_height / block_size;
+	ctx.height = data_height / block_size;
 	b2v_context_realloc(&ctx);
 
 	size_t bytes_read = 0;
@@ -604,9 +634,19 @@ int b2v_encode(const char *input, const char *output, int real_width,
 
 	while ( !feof(input_file) ) {
 		bytes_read += b2v_fill_image_from_file(&ctx, input_file, isg_mode);
+		frame += frame_write;
 		fprintf(stderr, "\r%.1lf KiB written, %d frames",
-			((double)bytes_read / 1024), ++frame);
-		fwrite(ctx.image_scaled, pixels * 3, 1, ffmpeg_process.stdin_file);
+			((double)bytes_read / 1024), frame);
+		for (int i=0; i<frame_write; i++) {
+			fwrite(ctx.image_scaled, pixels * 3, 1, ffmpeg_process.stdin_file);
+		}
+	}
+
+	if (black_frame) {
+		memset(ctx.image_scaled, 0, pixels * 3);
+		for (int i=0; i<frame_write; i++) {
+			fwrite(ctx.image_scaled, pixels * 3, 1, ffmpeg_process.stdin_file);
+		}
 	}
 	fprintf(stderr, "\n");
 

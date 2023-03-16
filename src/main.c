@@ -17,6 +17,8 @@
 #define DEFAULT_ISG_INITIAL_BLOCK_SIZE 5
 #define DEFAULT_INITIAL_BLOCK_SIZE 10
 #define DEFAULT_FRAMERATE 10
+#define DEFAULT_FRAME_WRITE 1
+#define DEFAULT_DATA_HEIGHT -1
 #define DEFAULT_BLOCK_SIZE 5
 #define DEFAULT_FFMPEG "-c:v libx264 -pix_fmt yuv420p"
 
@@ -40,35 +42,45 @@ void usage(char *argv0) {
 		"  -i          Input file. Defaults to stdin.\n"
 		"  -o          Output file. Defaults to stdout.\n"
 		"  -t          Allows writing output to a tty.\n"
-		"  -f <rate>   Framerate. Defaults to %d.\n"
+		"  -f <rate>   Framerate. Defaults to %d. Set to -1 to let FFmpeg\n"
+		"              decide.\n"
+		"  -c <n>      Write every frame n times. Defaults to %d. Cannot be\n"
+		"              used with -I."
 		"  -b <bits>   Bits per pixel. Defaults to %d" DEFAULT_BITS_DESC ".\n"
 		"  -w <width>  Video width. Defaults to %d.\n"
 		"  -h <height> Video height. Defaults to %d.\n"
+		"  -H <height> Data height. Set this to a value less than the video\n"
+		"              height to limit the data blocks to a region on top of\n"
+		"              the video. The bottom of the region will be black.\n"
+		"              A value of -1 disables the data height. Defaults to %d.\n"
+		"              Cannot be used with -I.\n"
 		"  -s <size>   Size of each block. Defaults to %d.\n"
 		"  -I          Infinite-Storage-Glitch compatibility mode.\n"
+		"  -E          End the output with a black frame. Cannot be used with\n"
+		"              -I.\n"
 		"\n"
 		"ADVANCED OPTIONS:\n"
 		"  -S <size>   Sets the size of each block for the initial frame.\n"
 		"              Defaults to %d. Do not change this unless you have\n"
 		"              a good reason to do so. If you specify this flag\n"
 		"              while encoding, you will also need to do it while\n"
-		"              decoding.\n"
-		"              In Infinite-Storage-Glitch compatibility mode, this\n"
-		"              value defaults to %d and cannot be changed.\n"
+		"              decoding. When -I is used, this value defaults to %d\n"
+		"              and cannot be changed.\n"
 		"  -F <args>   Space separated options for encoding with FFmpeg.\n"
 		"              Defaults to \"%s\".\n"
-		, argv0, argv0, DEFAULT_FRAMERATE, DEFAULT_BITS, DEFAULT_WIDTH, DEFAULT_HEIGHT,
-		DEFAULT_BLOCK_SIZE, DEFAULT_INITIAL_BLOCK_SIZE, DEFAULT_ISG_INITIAL_BLOCK_SIZE,
+		, argv0, argv0, DEFAULT_FRAMERATE, DEFAULT_FRAME_WRITE, DEFAULT_BITS,
+		DEFAULT_WIDTH, DEFAULT_HEIGHT, DEFAULT_DATA_HEIGHT, DEFAULT_BLOCK_SIZE,
+		DEFAULT_INITIAL_BLOCK_SIZE, DEFAULT_ISG_INITIAL_BLOCK_SIZE,
 		DEFAULT_FFMPEG);
 }
 
 #define USAGE() { usage(argv[0]); return EXIT_FAILURE; }
 #define DIE(message) { fprintf(stderr, "%s: %s\n", argv[0], message); \
 	return EXIT_FAILURE; }
-#define NUM_ARG(target) { \
+#define NUM_ARG(target, min) { \
 	errno = 0; \
 	target = strtol(optarg, NULL, 10); \
-	if ((errno != 0) || (target < 0)) USAGE(); \
+	if ((errno != 0) || (target < min)) USAGE(); \
 }
 int main(int argc, char **argv) {
 	char *input_file = NULL;
@@ -78,6 +90,9 @@ int main(int argc, char **argv) {
 	int bits_per_pixel = DEFAULT_BITS;
 	int initial_block_size = DEFAULT_INITIAL_BLOCK_SIZE;
 	int block_size = DEFAULT_BLOCK_SIZE;
+	int data_height = DEFAULT_DATA_HEIGHT;
+	int frame_write = DEFAULT_FRAME_WRITE;
+	bool black_frame = false;
 	int width = DEFAULT_WIDTH;
 	int height = DEFAULT_HEIGHT;
 	bool write_to_tty = false;
@@ -87,24 +102,35 @@ int main(int argc, char **argv) {
 
 	int opt;
 	bool opts[0x100] = {};
-	while ((opt = getopt(argc, argv, "F:f:b:w:h:s:S:i:o:detI")) != -1) {
+	while ((opt = getopt(argc, argv, "F:f:b:w:h:s:S:i:o:detIH:c:E")) != -1) {
 		if (opts[opt & 0xFF]) USAGE();
 		opts[opt & 0xFF] = true;
 		switch (opt) {
-			case 'b': NUM_ARG(bits_per_pixel); break;
-			case 'w': NUM_ARG(width); break;
-			case 'h': NUM_ARG(height); break;
+			case 'b': NUM_ARG(bits_per_pixel, 1); break;
+			case 'w': NUM_ARG(width, 1); break;
+			case 'h': NUM_ARG(height, 1); break;
 			case 'S':
-				NUM_ARG(initial_block_size);
+				NUM_ARG(initial_block_size, 1);
 				opts['I'] = true;
 				break;
-			case 's': NUM_ARG(block_size); break;
-			case 'f': NUM_ARG(framerate); break;
+			case 's': NUM_ARG(block_size, 1); break;
+			case 'c':
+				NUM_ARG(frame_write, 1);
+				opts['I'] = true;
+				break;
+			case 'f': NUM_ARG(framerate, -1); break;
+			case 'H':
+				NUM_ARG(data_height, -1);
+				opts['I'] = true;
+				break;
 			case 'i': input_file = optarg; break;
 			case 'I':
 				isg_mode = true;
+				opts['H'] = true;
+				opts['c'] = true;
 				opts['S'] = true;
 				break;
+			case 'E': black_frame = true; break;
 			case 'o': output_file = optarg; break;
 			case 't': write_to_tty = true; break;
 			case 'F': encode_flags = optarg; break;
@@ -148,8 +174,8 @@ int main(int argc, char **argv) {
 	if ((bits_per_pixel < 0) || (bits_per_pixel > 24)) {
 		DIE("bits-per-pixel must be in the range [0..24]")
 	}
-	if (framerate <= 0) {
-		DIE("framerate must be greater than 0");
+	if ((framerate != -1) && (framerate <= 0)) {
+		DIE("framerate must be either -1 or a value greater than 0");
 	}
 	if ((width % initial_block_size != 0) || (height % initial_block_size != 0) ||
 		(width % block_size != 0) || (height % block_size != 0))
@@ -158,6 +184,15 @@ int main(int argc, char **argv) {
 	}
 	if ((width % 2 != 0) || (height % 2 != 0)) {
 		DIE("width and height must be divisible by 0");
+	}
+	if (data_height != -1) {
+		if ((data_height % block_size != 0) || (data_height % initial_block_size != 0)) {
+			DIE("data height must be divisible by the initial and the real block size");
+		}
+		else if (data_height >= height) {
+			fprintf(stderr, "warning: data height is greater than or equal to the "
+				"video height, it will have no effect\n");
+		}
 	}
 	if (((width * height) / (initial_block_size * initial_block_size)) < MINIMUM_BLOCK_COUNT ||
 		((width * height) / (block_size * block_size)) < MINIMUM_BLOCK_COUNT) {
@@ -187,7 +222,7 @@ int main(int argc, char **argv) {
 			}
 			ret = b2v_encode(input_file, output_file, width, height,
 				initial_block_size, block_size, bits_per_pixel, framerate,
-				encode_argv, isg_mode);
+				encode_argv, isg_mode, data_height, frame_write, black_frame);
 			break;
 		}
 	}

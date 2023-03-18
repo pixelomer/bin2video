@@ -503,10 +503,6 @@ int b2v_encode(const char *input, const char *output, int real_width,
 	int framerate, const char **encode_argv, bool isg_mode, int data_height,
 	int frame_write, bool black_frame)
 {
-	if ((data_height > real_height) || (data_height < 0)) {
-		data_height = real_height;
-	}
-
 	int encode_argc = 0;
 	for (const char **pt = encode_argv; *pt != NULL; pt++) {
 		encode_argc++;

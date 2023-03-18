@@ -7,7 +7,7 @@
 #include <errno.h>
 #include "bin2video.h"
 
-#define MINIMUM_BLOCK_COUNT 100
+#define MINIMUM_BLOCK_COUNT 200
 #define STR(x) #x
 #define STR_VAL(x) STR(x)
 
@@ -170,19 +170,22 @@ int main(int argc, char **argv) {
 	if ((width % 2 != 0) || (height % 2 != 0)) {
 		DIE("width and height must be divisible by 0");
 	}
-	if (data_height != -1) {
-		if ((data_height % block_size != 0) || (data_height % initial_block_size != 0)) {
-			DIE("data height must be divisible by the initial and the real block size");
-		}
-		else if (data_height >= height) {
-			fprintf(stderr, "warning: data height is greater than or equal to the "
-				"video height, it will have no effect\n");
-		}
+	if (data_height <= 0) {
+		data_height = height;
 	}
-	if (((width * height) / (initial_block_size * initial_block_size)) < MINIMUM_BLOCK_COUNT ||
-		((width * height) / (block_size * block_size)) < MINIMUM_BLOCK_COUNT) {
+	else if (data_height >= height) {
+		fprintf(stderr, "warning: data height is greater than or equal to the "
+			"video height, it will have no effect\n");
+		data_height = height;
+	}
+	else if ((data_height % block_size != 0) || (data_height % initial_block_size != 0)) {
+		DIE("data height must be divisible by the initial and the real block size");
+	}
+	if (((width * data_height) / (initial_block_size * initial_block_size)) < MINIMUM_BLOCK_COUNT ||
+		((width * data_height) / (block_size * block_size)) < MINIMUM_BLOCK_COUNT)
+	{
 		DIE("a minimum of " STR_VAL(MINIMUM_BLOCK_COUNT) " blocks must be available "
-			"at all times, make sure the resolution and block sizes are big enough");
+			"at all times, make sure the width and data height are big enough");
 	}
 	if (isg_mode) {
 		initial_block_size = DEFAULT_ISG_INITIAL_BLOCK_SIZE;

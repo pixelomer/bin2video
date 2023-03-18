@@ -460,10 +460,29 @@ int b2v_decode(const char *input, const char *output, int initial_block_size,
 					frame_write = (int)ctx.buffer[4];
 				}
 			}
+			if (ctx.scale <= 0 || real_width % ctx.scale != 0 ||
+				real_height % ctx.scale != 0)
+			{
+				fprintf(stderr, "error: invalid block size (%d) for resolution: %dx%d",
+					ctx.scale, real_width, real_height);
+				goto fail;
+			}
+			else if (ctx.bits_per_pixel < 1 || ctx.bits_per_pixel > 24) {
+				fprintf(stderr, "error: invalid bits-per-pixel: %d", ctx.bits_per_pixel);
+				goto fail;
+			}
+			else if (frame_write <= 0) {
+				fprintf(stderr, "error: invalid frame repeat: %d", frame_write);
+				goto fail;
+			}
 			ctx.width = real_width / ctx.scale;
 			ctx.height = real_height / ctx.scale;
 			b2v_context_realloc(&ctx);
 			blocks = ctx.width * ctx.height;
+			continue;
+		fail:
+			result = EXIT_FAILURE;
+			break;
 		}
 		else {
 			// File data

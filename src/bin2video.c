@@ -479,10 +479,6 @@ int b2v_decode(const char *input, const char *output, int initial_block_size,
 			ctx.height = real_height / ctx.scale;
 			b2v_context_realloc(&ctx);
 			blocks = ctx.width * ctx.height;
-			continue;
-		fail:
-			result = EXIT_FAILURE;
-			break;
 		}
 		else {
 			// File data
@@ -502,6 +498,10 @@ int b2v_decode(const char *input, const char *output, int initial_block_size,
 			fwrite(ctx.buffer, 1, ret, output_file);
 		}
 		read_idx = 0;
+		continue;
+	fail:
+		result = EXIT_FAILURE;
+		break;
 	}
 	fprintf(stderr, "\n");
 

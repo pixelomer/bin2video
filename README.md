@@ -14,17 +14,17 @@ This GIF file can be decoded with `bin2video` to extract the peppers test image.
 
 ||bin2video|[Infinite-Storage-Glitch](https://github.com/DvorakDwarf/Infinite-Storage-Glitch)|[Infinity-Drive](https://github.com/rondotcomYT/Infinity-Drive)|
 |---|---|---|---|
-|Encode\*|⚡️ 253s\*\*|595s|572s|
-|Decode\*|⚡️ 34s|531s|702s|
+|Encode¹|⚡️ 253s²|595s|572s|
+|Decode¹|⚡️ 34s|531s|702s|
 |Custom encoding options|✅|❌|❌|
 |Custom resolution|✅|✅|❌|
 |Custom bits-per-pixel|✅ All values from 1 bit to 24 bits|Only 1 bit or 24 bits|❌|
-|Embeddable\*\*\*|✅ with `embed.sh`|❌|❌|
+|Embeddable³|✅ with `embed.sh`|❌|❌|
 |Pipe support|✅|❌|❌|
 
-\* Tests were done with a randomly generated 32MB test file on an M1 MacBook Air.  
-\*\* Depends on FFmpeg options. Goes down to **106 seconds** with `-- -c:v png`.  
-\*\*\* File data can be embedded into a real video. See demo.
+¹ Tests were done with a randomly generated 32MB test file on an M1 MacBook Air.  
+² Depends on FFmpeg options. Goes down to **106 seconds** with `-- -c:v png`.  
+³ File data can be embedded into a real video. See demo.
 
 ## Building
 

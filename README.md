@@ -44,8 +44,8 @@ You must have `ffmpeg` and `ffprobe` in your PATH to use this program.
 
 ```
 USAGE:
-  ./bin2video [options] -e data.bin video.mp4
-  ./bin2video [options] -d video.mp4 data.bin
+  ./bin2video [options] -e -i data.bin -o video.mp4
+  ./bin2video [options] -d -i video.mp4 -o data.bin
 
 OPTIONS:
   -e          Encode mode. Takes an input binary file and produces

@@ -32,8 +32,8 @@
 void usage(char *argv0) {
 	fprintf(stderr,
 		"USAGE:\n"
-		"  %s [options] -e data.bin video.mp4\n"
-		"  %s [options] -d video.mp4 data.bin\n"
+		"  %s [options] -e -i data.bin -o video.mp4\n"
+		"  %s [options] -d -i video.mp4 -o data.bin\n"
 		"\n"
 		"OPTIONS:\n"
 		"  -e          Encode mode. Takes an input binary file and produces\n"

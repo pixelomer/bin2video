@@ -108,3 +108,17 @@ yt-dlp -f 247 -o isg-video.webm 'https://www.youtube.com/watch?v=8I4fd_Sap-g'
 # video-out.mp4
 ./embed.sh file.bin video.mp4 video-out.mp4
 ```
+
+## Docker
+
+A Dockerfile is provided for building and running bin2video in a container. To build the image:
+
+```bash
+docker build -t bin2video .
+```
+
+To run bin2video in a container:
+
+```bash
+docker run -it --rm bin2video [options]
+```

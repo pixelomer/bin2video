@@ -19,9 +19,7 @@
 #define DEFAULT_FRAMERATE 10
 #define DEFAULT_FRAME_WRITE 1
 #define DEFAULT_DATA_HEIGHT -1
-#define DEFAULT_BLOCK_SIZE 5
-//FIXME: Changing DEFAULT_FFMPEG does not actually change the default arguments
-#define DEFAULT_FFMPEG "-c:v libx264 -pix_fmt yuv420p"
+#define DEFAULT_BLOCK_SIZE 5#define DEFAULT_FFMPEG "-c:v libx264 -pix_fmt yuv420p"
 
 #if DEFAULT_BITS == 1
 #define DEFAULT_BITS_DESC " (black and white)"
@@ -84,6 +82,30 @@ void usage(char *argv0) {
 	target = strtol(optarg, NULL, 10); \
 	if ((errno != 0) || (target < min)) USAGE(); \
 }
+
+static const char **split_ffmpeg_args(const char *args) {
+    int count = 1; 
+    const char *p = args;
+    while (*p) {
+        if (*p == ' ') count++;
+        p++;
+    }
+    
+    const char **argv = malloc(count * sizeof(char*));
+    char *temp = strdup(args);
+    int i = 0;
+    
+    char *token = strtok(temp, " ");
+    while (token) {
+        argv[i++] = strdup(token);
+        token = strtok(NULL, " ");
+    }
+    argv[i] = NULL;
+    free(temp);
+    
+    return argv;
+}
+
 int main(int argc, char **argv) {
 	char *input_file = NULL;
 	char *output_file = NULL;
@@ -145,10 +167,16 @@ int main(int argc, char **argv) {
 		}
 	}
 
-	const char *default_encode_argv[] = { "-c:v", "libx264", "-pix_fmt", "yuv420p",
-		NULL };
+	const char **default_encode_argv = split_ffmpeg_args(DEFAULT_FFMPEG);
 	const char **encode_argv = default_encode_argv;
 	if (optind != argc) {
+		// Free the default arguments if we're not using them
+		if (encode_argv != NULL) {
+			for (const char **p = encode_argv; *p; p++) {
+				free((void*)*p);
+			}
+			free(encode_argv);
+		}
 		// argv[argc] is always NULL
 		encode_argv = (const char **)argv + optind;
 	}
@@ -213,6 +241,13 @@ int main(int argc, char **argv) {
 				encode_argv, isg_mode, data_height, frame_write, black_frame);
 			break;
 		}
+	}
+	if (encode_argv == default_encode_argv) {
+		// Free the default arguments if we used them
+		for (const char **p = encode_argv; *p; p++) {
+			free((void*)*p);
+		}
+		free(encode_argv);
 	}
 	return ret;
 }

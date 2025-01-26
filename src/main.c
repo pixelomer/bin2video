@@ -102,10 +102,10 @@ int main(int argc, char **argv) {
 	bool isg_mode = false;
 
 	int opt;
-	bool opts[0x100] = {};
+	bool opts[0x80] = { 0 };
 	while ((opt = getopt(argc, argv, "f:b:w:h:s:S:i:o:detIH:c:E")) != -1) {
-		if (opts[opt & 0xFF]) USAGE();
-		opts[opt & 0xFF] = true;
+		if (opts[opt & 0x7F]) USAGE();
+		opts[opt & 0x7F] = true;
 		switch (opt) {
 			case 'b': NUM_ARG(bits_per_pixel, 1); break;
 			case 'w': NUM_ARG(width, 1); break;

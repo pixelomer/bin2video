@@ -20,7 +20,6 @@
 #define DEFAULT_FRAME_WRITE 1
 #define DEFAULT_DATA_HEIGHT -1
 #define DEFAULT_BLOCK_SIZE 5
-//FIXME: Changing DEFAULT_FFMPEG does not actually change the default arguments
 #define DEFAULT_FFMPEG "-c:v libx264 -pix_fmt yuv420p"
 
 #if DEFAULT_BITS == 1
@@ -28,6 +27,29 @@
 #else
 #define DEFAULT_BITS_DESC ""
 #endif
+
+// Parse space-separated arguments into an array of strings
+// Returns number of arguments parsed
+static int parse_args(const char *args_str, const char **argv, int max_args) {
+    char *str = strdup(args_str);
+    int argc = 0;
+    char *token = strtok(str, " ");
+    
+    while (token && argc < max_args - 1) {
+        argv[argc++] = strdup(token);
+        token = strtok(NULL, " ");
+    }
+    argv[argc] = NULL;
+    free(str);
+    return argc;
+}
+
+// Free argument array created by parse_args
+static void free_args(const char **argv, int argc) {
+    for (int i = 0; i < argc; i++) {
+        free((void*)argv[i]);
+    }
+}
 
 void usage(char *argv0) {
 	fprintf(stderr,
@@ -145,9 +167,11 @@ int main(int argc, char **argv) {
 		}
 	}
 
-	const char *default_encode_argv[] = { "-c:v", "libx264", "-pix_fmt", "yuv420p",
-		NULL };
+	// Replace the hardcoded default_encode_argv with parsed DEFAULT_FFMPEG
+	const char *default_encode_argv[32];  // Reasonable maximum number of arguments
+	int default_argc = parse_args(DEFAULT_FFMPEG, default_encode_argv, 32);
 	const char **encode_argv = default_encode_argv;
+
 	if (optind != argc) {
 		// argv[argc] is always NULL
 		encode_argv = (const char **)argv + optind;
@@ -214,6 +238,12 @@ int main(int argc, char **argv) {
 			break;
 		}
 	}
+
+	// Clean up if we used the default arguments
+	if (encode_argv == default_encode_argv) {
+		free_args(default_encode_argv, default_argc);
+	}
+
 	return ret;
 }
 #undef USAGE

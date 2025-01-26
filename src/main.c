@@ -20,8 +20,11 @@
 #define DEFAULT_FRAME_WRITE 1
 #define DEFAULT_DATA_HEIGHT -1
 #define DEFAULT_BLOCK_SIZE 5
-//FIXME: Changing DEFAULT_FFMPEG does not actually change the default arguments
+
+// DEFAULT_FFMPEG_LEN = (number of space separated arguments in DEFAULT_FFMPEG)
+// default arguments are assumed to not contain spaces
 #define DEFAULT_FFMPEG "-c:v libx264 -pix_fmt yuv420p"
+#define DEFAULT_FFMPEG_LEN 4
 
 #if DEFAULT_BITS == 1
 #define DEFAULT_BITS_DESC " (black and white)"
@@ -145,12 +148,27 @@ int main(int argc, char **argv) {
 		}
 	}
 
-	const char *default_encode_argv[] = { "-c:v", "libx264", "-pix_fmt", "yuv420p",
-		NULL };
-	const char **encode_argv = default_encode_argv;
+	const char **encode_argv;
 	if (optind != argc) {
 		// argv[argc] is always NULL
 		encode_argv = (const char **)argv + optind;
+	}
+	else {
+		static char args_buf[] = DEFAULT_FFMPEG;
+		static const char *default_encode_argv[DEFAULT_FFMPEG_LEN+1] = { args_buf };
+		int i, j;
+		for (i=0, j=1; args_buf[i] != '\0'; ++i) {
+			if (args_buf[i] == ' ') {
+				default_encode_argv[j++] = args_buf + i + 1;
+				if (j > DEFAULT_FFMPEG_LEN) {
+					DIE("DEFAULT_FFMPEG_LEN is set incorrectly, rebuild bin2video or specify "
+						"FFmpeg arguments manually");
+				}
+				args_buf[i] = '\0';
+			}
+		}
+		default_encode_argv[j] = NULL;
+		encode_argv = default_encode_argv;
 	}
 
 	if (operation_mode == 0) {

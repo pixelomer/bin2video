@@ -335,8 +335,9 @@ int video_resolution(const char *file, int *width_pt, int *height_pt) {
 	char resolution[33];
 	memset(resolution, 0, sizeof(resolution));
 	subprocess_read_stdout(&ffmpeg_process, resolution, sizeof(resolution)-1);
-	fread(resolution, 1, sizeof(resolution)-1, ffmpeg_process.stdout_file);
-
+	size_t resolution_read = fread(resolution, 1, sizeof(resolution)-1,
+		ffmpeg_process.stdout_file);
+	(void)resolution_read;
 	subprocess_destroy(&ffmpeg_process);
 	if (subprocess_ret != 0) {
 		return -1;

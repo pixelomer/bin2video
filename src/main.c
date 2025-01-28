@@ -222,7 +222,7 @@ int main(int argc, char **argv) {
 			}
 			ret = b2v_decode(input_file, output_file, initial_block_size, isg_mode);
 			break;
-		case 'e': {
+		case 'e':
 			if (output_file == NULL) {
 				DIE("output file cannot be stdout in encode mode");
 			}
@@ -230,7 +230,9 @@ int main(int argc, char **argv) {
 				initial_block_size, block_size, bits_per_pixel, framerate,
 				encode_argv, isg_mode, data_height, frame_write, black_frame);
 			break;
-		}
+		default:
+			DIE("impossible condition: operation_mode is not valid");
+			break;
 	}
 	return ret;
 }

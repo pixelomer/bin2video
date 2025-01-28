@@ -51,3 +51,27 @@ jobs:
         with:
           name: bin2video-linux-x86_64
           path: bin2video-linux-x86_64.tar.gz
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build arm64
+        run: |
+          CFLAGS="-arch arm64" make
+          zip -r bin2video-macos-arm64.zip bin2video
+          rm bin2video
+      - name: Archive arm64
+        uses: actions/upload-artifact@v4
+        with:
+          name: bin2video-macos-arm64
+          path: bin2video-macos-arm64.zip
+      - name: Build x86_64
+        run: |
+          CFLAGS="-arch x86_64" make
+          zip -r bin2video-macos-x86_64.zip bin2video
+          rm bin2video
+      - name: Archive x86_64
+        uses: actions/upload-artifact@v4
+        with:
+          name: bin2video-macos-x86_64
+          path: bin2video-macos-x86_64.zip

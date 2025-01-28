@@ -1,0 +1,53 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  windows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-mingw-w64 make zip
+      - name: Build x86_64
+        run: |
+          CC=x86_64-w64-mingw32-gcc make
+          zip -r bin2video-win32-x86_64.zip bin2video.exe
+          rm bin2video.exe
+      - name: Archive x86_64
+        uses: actions/upload-artifact@v4
+        with:
+          name: bin2video-win32-x86_64
+          path: bin2video-win32-x86_64.zip
+      - name: Build i686
+        run: |
+          CC=i686-w64-mingw32-gcc make
+          zip -r bin2video-win32-i686.zip bin2video.exe
+          rm bin2video.exe
+      - name: Archive i686
+        uses: actions/upload-artifact@v4
+        with:
+          name: bin2video-win32-i686
+          path: bin2video-win32-i686.zip
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup
+        run: |
+          sudo apt-get update
+          sudo apt-get install gcc tar
+      - name: Build
+        run: |
+          make
+          tar -czvf bin2video-linux-x86_64.tar.gz bin2video
+      - name: Archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: bin2video-linux-x86_64
+          path: bin2video-linux-x86_64.tar.gz

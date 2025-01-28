@@ -1,4 +1,7 @@
 *
+!.github/
+!.github/workflows/
+!.github/workflows/build.yaml
 !src/
 !src/*.c
 !src/*.h
